@@ -1,0 +1,37 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="http://localhost:3000/socket.io/socket.io.js"></script>
+
+    <script>
+        
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        $(() => {
+
+            const socket = io('http://localhost:3000');
+            
+            let sendButton = $('#sendButton');
+
+            sendButton.click(() => 
+            {
+                socket.emit('command', {id: 11, command: 'set', args: ['foo', 'bar' + Math.random()]});
+            });
+
+            print('Redis-via-HTTP connection');
+            
+            socket.on('ret', function (data) 
+            {
+                console.log(data);                
+            });            
+        });
+    </script>
+<body> 
+    <button id="sendButton">
+        Send SET foo bar
+    </button>   
+</body>
+</html>
