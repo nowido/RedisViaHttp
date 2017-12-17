@@ -1,0 +1,32 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="https://fluidsync2.herokuapp.com/socket.io/socket.io.js"></script>
+
+    <script>
+        
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        $(() => {
+
+            let socket = io('https://fluidsync2.herokuapp.com');
+
+            let sendButton = $('#sendButton');
+
+            sendButton.click(() => 
+            {
+                socket.emit('send', {to: 'bar', from: 'foo', payload: 'Hello!'})
+            });
+
+            print('FluidSync2 connection');
+        });
+    </script>
+<body> 
+    <button id="sendButton">
+        Send foo to bar
+    </button>   
+</body>
+</html>
