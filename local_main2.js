@@ -18,6 +18,8 @@ const io = new socketServer();
  
 io.on('connection', function (socket) 
 {
+    console.log(socket.id + ' connected');
+
     socket.on('command', function (data) 
     {
         console.log(data);
@@ -26,6 +28,11 @@ io.on('connection', function (socket)
             socket.emit('ret', {id: data.id, error: err, reply: reply});
         });
     });
+
+    socket.on('disconnect', function(reason){
+
+        console.log(socket.id + ' disconnected by reason: ' + reason);        
+    });    
 });
 
 io.listen(3000);
