@@ -9,17 +9,30 @@
         {
             $('body').append('<p>' + s + '</p>');       
         }
+
+        function subscribe(socket, channel)
+        {
+            socket.emit('subscribe', channel);
+        }
+
         $(() => {
             let socket = io('https://fluidsync2.herokuapp.com');
             
+            socket.on('connect', () => {
+
+                subscribe(socket, 'bar');
+                print('FluidSync2 connection');
+            });
+
+            socket.on('reconnect', () => {
+                
+                print('FluidSync2 reconnection');
+            });
+
             socket.on('bar', (message) => {
                 print('(To bar)From: ' + message.from);
                 print('Payload: ' + message.payload);
-            });
-
-            socket.emit('subscribe', 'bar');
-
-            print('FluidSync2 connection');
+            });                        
         });
     </script>
 <body> 
