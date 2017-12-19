@@ -2,6 +2,7 @@
     <meta charset="UTF-8">
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
     <script src="https://fluidsync2.herokuapp.com/socket.io/socket.io.js"></script>
+    <script src="fluidsync_redis_proxy.js"></script>
 
     <script>
                 
@@ -10,16 +11,16 @@
             $('body').append('<p>' + s + '</p>');       
         }
 
-        function subscribe(socket, channel)
-        {
-            socket.emit('subscribe', channel);
-        }
+        /*
+        // pure sockets style
                     
         $(() => {
             let socket = io('https://fluidsync2.herokuapp.com');
         
-            socket.on('connect', () => {
-                subscribe(socket, 'redis-ret');
+            socket.on('connect', () => {    
+
+                socket.emit('subscribe', 'redis-ret');
+
                 print('FluidSync2 Redis connection');
             });
             
@@ -38,6 +39,31 @@
                 {id: '11', command: 'set', args: ['foo', 'bar' + Math.random()]}}); 
             });            
         });
+        */
+
+        ///*
+        // proxy helper style
+
+        $(() => {
+
+            const communicator = 'https://fluidsync2.herokuapp.com';
+            
+            let redis = new redisProxy(communicator, (socket) => {
+                print('FluidSync2 Redis connection');    
+            });
+
+            let sendButton = $('#sendButton');
+
+            sendButton.click(() => 
+            {
+                redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });
+            });             
+        });
+        //*/
+
     </script>
 <body> 
     <button id="sendButton">
