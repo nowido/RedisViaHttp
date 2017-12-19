@@ -28,7 +28,7 @@ function subscribe(socket, channel)
         
 socket.on('connect', () => {
 
-    subscribe(socket, 'command');
+    subscribe(socket, 'redis-command');
     console.log('connected to FluidSync');
 });
 
@@ -40,7 +40,7 @@ socket.on('disconnect', () => {
     console.log('disconnected from FluidSync');        
 });    
 
-socket.on('command', function (data) 
+socket.on('redis-command', function (data) 
 {
     console.log(data);
     
