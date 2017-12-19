@@ -34,7 +34,7 @@
 
             sendButton.click(() => 
             {
-                socket.emit('publish', {channel: 'command', from: 'anon', payload: 
+                socket.emit('publish', {channel: 'redis-command', from: 'anon', payload: 
                 {id: '11', command: 'set', args: ['foo', 'bar' + Math.random()]}}); 
             });            
         });
