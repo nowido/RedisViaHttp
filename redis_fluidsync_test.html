@@ -1,0 +1,47 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="https://fluidsync2.herokuapp.com/socket.io/socket.io.js"></script>
+
+    <script>
+                
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        function subscribe(socket, channel)
+        {
+            socket.emit('subscribe', channel);
+        }
+                    
+        $(() => {
+            let socket = io('https://fluidsync2.herokuapp.com');
+        
+            socket.on('connect', () => {
+                subscribe(socket, 'redis-ret');
+                print('FluidSync2 Redis connection');
+            });
+            
+            socket.on('redis-ret', (message) => {
+                print(message.from + ':');                
+                print('id: ' + message.payload.id);
+                print('error: ' + message.payload.error);
+                print('reply: ' + message.payload.reply);
+            }); 
+
+            let sendButton = $('#sendButton');
+
+            sendButton.click(() => 
+            {
+                socket.emit('publish', {channel: 'command', from: 'anon', payload: 
+                {id: '11', command: 'set', args: ['foo', 'bar' + Math.random()]}}); 
+            });            
+        });
+    </script>
+<body> 
+    <button id="sendButton">
+        Set foo bar
+    </button>   
+</body>
+</html>
