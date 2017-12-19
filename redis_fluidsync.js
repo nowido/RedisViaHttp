@@ -1,6 +1,5 @@
 const redis = require('redis');
-const url = require('url');
-const http = require('http');
+
 const io = require('socket.io-client');
 
 const redisHost = '127.0.0.1';
@@ -12,23 +11,12 @@ const redisClient = redis.createClient(redisConfig);
 
 redisClient.on('error', console.log);
 
-const httpServer = http.createServer((req, res) => {
-    res.statusCode = 200;
-    res.setHeader('Content-Type', 'text/plain');
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.end('Hello World\n');
-  });
-  
 const socket = io('https://fluidsync2.herokuapp.com');  
 
-function subscribe(socket, channel)
-{
-    socket.emit('subscribe', channel);
-}
-        
 socket.on('connect', () => {
 
-    subscribe(socket, 'redis-command');
+    socket.emit('subscribe', 'redis-command');    
+
     console.log('connected to FluidSync');
 });
 
@@ -52,5 +40,3 @@ socket.on('redis-command', function (data)
 });
 
 console.log('Local Redis connector running...');
-
-httpServer.listen(3000);
