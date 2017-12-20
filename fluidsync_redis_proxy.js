@@ -8,27 +8,29 @@ function redisProxy(communicatorHost, onConnect)
 
     this.redisSocket.on('connect', () => {
 
-        this.redisSocket.emit('subscribe', 'redis-ret');
+        this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
+        
+        this.redisSocket.on(this.feedbackChannel, (message) => {
+        
+            let payload = message.payload;
+    
+            let index = 'cmd' + payload.id;
+    
+            let f = this.registry[index];
+    
+            if(f)
+            {
+                f(payload.error, payload.reply);
+    
+                delete this.registry[index];
+            }
+        });
+            
+        this.redisSocket.emit('subscribe', this.feedbackChannel);
 
         if(onConnect)
         {
             onConnect(this.redisSocket);
-        }
-    });
-
-    this.redisSocket.on('redis-ret', (message) => {
-        
-        let payload = message.payload;
-
-        let index = 'cmd' + payload.id;
-
-        let f = this.registry[index];
-
-        if(f)
-        {
-            f(payload.error, payload.reply);
-
-            delete this.registry[index];
         }
     });
 
@@ -44,6 +46,6 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
         this.registry['cmd' + this.commandId] = onResult;
     }
 
-    this.redisSocket.emit('publish', {channel: 'redis-command', from: 'anon', payload: 
-        {id: this.commandId, command: commandName, args: commandArgs}});
+    this.redisSocket.emit('publish', {channel: 'redis-command', from: this.redisSocket.id, payload: 
+        {feedbackChannel: this.feedbackChannel, id: this.commandId, command: commandName, args: commandArgs}});
 }
