@@ -32,7 +32,7 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
         if(onConnect)
         {
-            onConnect(this.redisSocket);
+            onConnect(this);
         }
     });
 
