@@ -14,29 +14,22 @@
         // pure sockets style
         
         var feedbackChannel;
-
         $(() => {
-
             let socket = io('https://fluidsync2.herokuapp.com');
         
             socket.on('connect', () => {    
-
                 feedbackChannel = 'redis-ret-' + socket.id;
-
                 socket.on(feedbackChannel, (message) => {
                     print(message.from + ':');                
                     print('id: ' + message.payload.id);
                     print('error: ' + message.payload.error);
                     print('reply: ' + message.payload.reply);
                 }); 
-
                 socket.emit('subscribe', feedbackChannel);
-
                 print('FluidSync2 Redis connection: ' + socket.id);
             });
             
             let sendButton = $('#sendButton');
-
             sendButton.click(() => 
             {
                 socket.emit('publish', {channel: 'redis-command-unique_instance_name', from: socket.id, payload: 
@@ -47,15 +40,12 @@
         //*
         // proxy helper style
         $(() => {
-
             const communicator = 'https://fluidsync2.herokuapp.com';
             
-            let redis = new redisProxy(communicator, 'unique_instance_name', (socket) => {
-                print('FluidSync2 Redis connection: ' + socket.id);    
+            let redis = new redisProxy(communicator, 'unique_instance_name', (proxy) => {
+                print('FluidSync2 Redis connection: ' + proxy.redisSocket.id);    
             });
-
             let sendButton = $('#sendButton');
-
             sendButton.click(() => 
             {
                 redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {
