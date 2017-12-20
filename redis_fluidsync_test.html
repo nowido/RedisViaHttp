@@ -39,18 +39,18 @@
 
             sendButton.click(() => 
             {
-                socket.emit('publish', {channel: 'redis-command', from: socket.id, payload: 
+                socket.emit('publish', {channel: 'redis-command-unique_instance_name', from: socket.id, payload: 
                 {feedbackChannel: feedbackChannel, id: '11', command: 'set', args: ['foo', 'bar' + Math.random()]}}); 
             });            
         });
         */
-        ///*
+        //*
         // proxy helper style
         $(() => {
-            
+
             const communicator = 'https://fluidsync2.herokuapp.com';
             
-            let redis = new redisProxy(communicator, (socket) => {
+            let redis = new redisProxy(communicator, 'unique_instance_name', (socket) => {
                 print('FluidSync2 Redis connection: ' + socket.id);    
             });
 
