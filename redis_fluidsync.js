@@ -34,8 +34,14 @@ socket.on('redis-command', function (data)
     
     let message = data.payload;
 
+    if((message === undefined) || (message.feedbackChannel === undefined) || (message.command === undefined))
+    {
+        return;
+    }
+
     redisClient.send_command(message.command, message.args, (err, reply) => {        
-        socket.emit('publish', {channel: 'redis-ret', from: 'redis', payload: {id: message.id, error: err, reply: reply}});
+
+        socket.emit('publish', {channel: message.feedbackChannel, from: 'redis', payload: {id: message.id, error: err, reply: reply}});        
     });
 });
 
