@@ -1,5 +1,7 @@
-function redisProxy(communicatorHost, onConnect)
-{
+function redisProxy(communicatorHost, redisProxyName, onConnect)
+{    
+    this.redisProxyChannel = 'redis-command-' + redisProxyName;
+
     this.redisSocket = io(communicatorHost);
 
     this.commandId = 1;
@@ -46,6 +48,6 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
         this.registry['cmd' + this.commandId] = onResult;
     }
 
-    this.redisSocket.emit('publish', {channel: 'redis-command', from: this.redisSocket.id, payload: 
+    this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: 
         {feedbackChannel: this.feedbackChannel, id: this.commandId, command: commandName, args: commandArgs}});
 }
