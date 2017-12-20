@@ -13,9 +13,12 @@ redisClient.on('error', console.log);
 
 const socket = io('https://fluidsync2.herokuapp.com');  
 
+const proxyName = 'unique_instance_name';
+const proxyChannel = 'redis-command-' + proxyName;
+
 socket.on('connect', () => {
 
-    socket.emit('subscribe', 'redis-command');    
+    socket.emit('subscribe', proxyChannel);    
 
     console.log('connected to FluidSync');
 });
@@ -28,7 +31,7 @@ socket.on('disconnect', () => {
     console.log('disconnected from FluidSync');        
 });    
 
-socket.on('redis-command', function (data) 
+socket.on(proxyChannel, function (data) 
 {
     console.log(data);
     
@@ -41,7 +44,7 @@ socket.on('redis-command', function (data)
 
     redisClient.send_command(message.command, message.args, (err, reply) => {        
 
-        socket.emit('publish', {channel: message.feedbackChannel, from: 'redis', payload: {id: message.id, error: err, reply: reply}});        
+        socket.emit('publish', {channel: message.feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});        
     });
 });
 
