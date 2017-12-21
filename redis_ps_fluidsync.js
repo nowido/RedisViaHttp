@@ -1,7 +1,7 @@
+    // Redis client
 const redis = require('redis');
 
-const io = require('socket.io-client');
-
+    // to do use config or commandline arg to specify Redis server attributes
 const redisHost = '127.0.0.1';
 const redisPort = '6379';
 
@@ -12,73 +12,150 @@ const redisSubscribedClient = redisClient.duplicate();
 
 redisClient.on('error', console.log);
 
-const socket = io('https://fluidsync2.herokuapp.com');  
+//-----------------------------
 
+    // web sockets client
+const io = require('socket.io-client');
+
+    // FluidSync host
+    // to do use config or commandline arg... but, honestly, if where are other FluidSync providers?
+const fluidsync = io('https://fluidsync2.herokuapp.com');  
+
+    // potential clients must know proxyName to compose command channel
 const proxyName = 'unique_instance_name';
+
 const proxyChannel = 'redis-command-' + proxyName;
 
+//-----------------------------
+// Redis PubSub stuff
+//-----------------------------
+
+    // commands subset for Redis Subscribe mode 
 const pubsubCommands = 
 {
-    'PSUBSCRIBE': true,
-    'PUBLISH': true,
-    'PUBSUB': true,
+    'PSUBSCRIBE': true,        
     'PUNSUBSCRIBE': true,
     'SUBSCRIBE': true,
     'UNSUBSCRIBE': true
 };
 
-socket.on('connect', () => {
-
-    socket.emit('subscribe', proxyChannel);    
-
-    console.log('connected to FluidSync');
-});
-
-socket.on('reconnect', () => {
-    console.log('reconnect to FluidSync ...');        
-});    
-
-socket.on('disconnect', () => {
-    console.log('disconnected from FluidSync');        
-});    
-
-function sendReply(message, err, reply)
-{
-    let feedbackChannel = message.feedbackChannel;
-
-    if(typeof feedbackChannel !== 'string')
-    {
-        return;
-    }
-
-    socket.emit('publish', {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
-}
-
 //-----------------------------
-// Redis PubSub stuff
+
+const channelPrefix = 'rc#';
+const patternPrefix = 'rp#';
 
 var subscriptionsRegistry = 
 {
-        // dictionary to store sockets subscribed for 'some çhannel'
-    channels: {}
+        // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
+        // this object is keyed with 'some channels' 
+        // and contains objects keyed with 'event channels'
+    channels: 
+    {
+        /*
+        {eventChannels} 
+        */
+    },
+
+        // dictionary to register remote listeners ('event channels') subscribed for 'some pattern'
+        // this object is keyed with 'some patterns' 
+        // and contains objects keyed with 'event channels'
+    patterns: 
+    {
+        /*
+        {eventChannels} 
+        */
+    },
+
+        // 'reverse dictionary' to speed up registry management
+    eventChannels: 
+    {
+        /*
+        {
+            timestamp: ...,
+            channels: {},
+            patterns: {}    
+        }
+        */
+    }    
 };
 
-function registerSubscription(channelId, eventChannelId)
-{
-    let prefixedChannelId = 'rc#' + channelId;
+    //
+subscriptionsRegistry.addChannel = (channel, eventChannel) =>
+{    
+    let prefixedChannel = channelPrefix + channel;
+    let prefixedEventChannel = channelPrefix + eventChannel;
 
     let channels = subscriptionsRegistry.channels;
 
-    let entry = channels[prefixedChannelId];
+    let entry = channels[prefixedChannel];
 
     if(entry === undefined)
     {
-        entry = channels[prefixedChannelId] = {};
+        entry = channels[prefixedChannel] = {};
     }
 
-    entry[eventChannelId] = true;
-}
+    entry[prefixedEventChannel] = true;    
 
+        // add to reverse dictionary
+    
+    let reverseRegistry = subscriptionsRegistry.eventChannels;
+
+    let reverseEntry = reverseRegistry[prefixedEventChannel];
+
+    if(reverseEntry === undefined)
+    {
+        reverseEntry = reverseRegistry[prefixedEventChannel] = 
+        {
+            channels: {},
+            patterns: {}                
+        };
+    }    
+
+    reverseEntry.timestamp = Date.now();
+
+    reverseEntry.channels[prefixedChannel] = true;
+};
+
+    //
+subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
+{    
+    let prefixedPattern = patternPrefix + pattern;
+    let prefixedEventChannel = channelPrefix + eventChannel;
+
+    let patterns = subscriptionsRegistry.patterns;
+
+    let entry = patterns[prefixedPattern];
+
+    if(entry === undefined)
+    {
+        entry = patterns[prefixedPattern] = {};
+    }
+
+    entry[prefixedEventChannel] = true;    
+
+        // add to reverse dictionary
+    
+    let reverseRegistry = subscriptionsRegistry.eventChannels;
+
+    let reverseEntry = reverseRegistry[prefixedEventChannel];
+
+    if(reverseEntry === undefined)
+    {
+        reverseEntry = reverseRegistry[prefixedEventChannel] = 
+        {
+            channels: {},
+            patterns: {}                
+        };
+    }    
+
+    reverseEntry.timestamp = Date.now();
+
+    reverseEntry.patterns[prefixedPattern] = true;        
+};
+
+//-----------------------------
+
+/*
 function removeSubscription(channelId, eventChannelId)
 {
     let prefixedChannelId = 'rc#' + channelId;
@@ -92,21 +169,33 @@ function removeSubscription(channelId, eventChannelId)
         delete entry[eventChannelId];
     }
 }
+*/
 
-function subscribe(message)
+//-----------------------------
+
+function subscribeForChannels(message)
 {
     let channels = message.args;
 
-    let eventChannelId = message.eventChannel;
-
-    if(typeof eventChannelId !== 'string')
+    if(channels === undefined)
     {
         return;
     }
 
-    for(let i = 0; i < channels.length; ++i)
+    let eventChannel = message.eventChannel;
+
+    if(typeof eventChannel !== 'string')
     {
-        registerSubscription(channels[i], eventChannelId);
+        return;
+    }
+
+        // add channels to registry in presumption that Redis takes them correctly
+
+    let count = channels.length;
+
+    for(let i = 0; i < count; ++i)
+    {
+        subscriptionsRegistry.addChannel(channels[i], eventChannel);        
     }            
 
     redisSubscribedClient.send_command('subscribe', channels, (err, reply) => {        
@@ -115,26 +204,22 @@ function subscribe(message)
     });    
 }
 
-function unsubscribe(message)
+function unsubscribeFromChannels(message)
 {
     let channels = message.args;
 
-    let eventChannelId = message.eventChannel;
-
-    if(typeof eventChannelId !== 'string')
+    if(channels === undefined)
     {
         return;
     }
-    
+        
     redisSubscribedClient.send_command('unsubscribe', channels, (err, reply) => {        
 
-        for(let i = 0; i < channels.length; ++i)
-        {
-            removeSubscription(channels[i], eventChannelId);
-        }            
-            
         sendReply(message, err, reply);        
     });    
+
+    // we do not clean up subscriptions registry for gone subscriber right now;    
+    // let time-license garbage collector do it later
 }
 
 function notifySubscribers(channel, message)
@@ -154,7 +239,7 @@ function notifySubscribers(channel, message)
 
     for(let i = 0; i < subscribersCount; ++i)
     {
-        socket.emit('publish', {channel: eventChannelsIds[i], from: proxyName, payload: message});     
+        fluidsync.emit('publish', {channel: eventChannelsIds[i], from: proxyName, payload: message});     
     }
 }
 
@@ -178,7 +263,6 @@ redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => {
 redisSubscribedClient.on('subscribe', (channel, count) => {
 
     notifySubscribers(channel, {event: 'subscribe', channel: channel, count: count});
-
 });
 
 redisSubscribedClient.on('psubscribe', (pattern, count) => {
@@ -196,7 +280,25 @@ redisSubscribedClient.on('punsubscribe', (pattern, count) => {
 
 //-----------------------------
 
-socket.on(proxyChannel, function (data) 
+fluidsync.on('connect', () => {
+
+        // now we will receive commands from remote nodes (through FluidSync)
+    fluidsync.emit('subscribe', proxyChannel);    
+
+    console.log('connected to FluidSync');
+});
+
+fluidsync.on('reconnect', () => {
+    console.log('reconnect to FluidSync ...');        
+});    
+
+fluidsync.on('disconnect', () => {
+    console.log('disconnected from FluidSync');        
+});    
+
+//-----------------------------
+
+fluidsync.on(proxyChannel, function (data) 
 {
     console.log(data);
     
@@ -215,11 +317,11 @@ socket.on(proxyChannel, function (data)
     {
         if(command === 'SUBSCRIBE')
         {
-            subscribe(message);    
+            subscribeForChannels(message);    
         }
         else if(command === 'UNSUBSCRIBE')
         {
-            unsubscribe(message);
+            unsubscribeFromChannels(message);
         }
     }
     else
@@ -230,5 +332,21 @@ socket.on(proxyChannel, function (data)
         });    
     }
 });
+
+//-----------------------------
+
+function sendReply(message, err, reply)
+{
+    let feedbackChannel = message.feedbackChannel;
+
+    if(typeof feedbackChannel !== 'string')
+    {
+        return;
+    }
+
+    fluidsync.emit('publish', {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
+}
+
+//-----------------------------
 
 console.log('Local Redis connector running...');
