@@ -247,21 +247,49 @@ function notifySubscribersOnChannelEvent(channel, message)
     }
 }
 
+function notifySubscribersOnPatternEvent(pattern, message)
+{
+    let prefixedChannel = patternPrefix + pattern;
+
+    let subscribers = subscriptionsRegistry.patterns[prefixedChannel];    
+
+    if(subscribers === undefined)
+    {
+        return;
+    }
+
+    let eventChannels = Object.keys(subscribers);
+    
+    let count = eventChannels.length;
+
+    for(let i = 0; i < count; ++i)
+    {
+        let eventChannel = eventChannels[i].substr(channelPrefixLength);
+
+        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});     
+    }
+}
+
+//-----------------------------
+
 redisSubscribedClient.on('message', (channel, message) => {
 
-    notifySubscribers(channel, {event: 'message', channel: channel, message: message});    
+    notifySubscribersOnChannelEvent(channel, {event: 'message', channel: channel, message: message});    
 });
 
 redisSubscribedClient.on('pmessage', (pattern, channel, message) => {
-
+    
+    notifySubscribersOnPatternEvent(pattern, {event: 'pmessage', pattern: pattern, channel: channel, message: message});
 });
 
 redisSubscribedClient.on('message_buffer', (channel, message) => {
 
+    notifySubscribersOnChannelEvent(channel, {event: 'message_buffer', channel: channel, message: message});
 });
 
 redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => {
 
+    notifySubscribersOnPatternEvent(pattern, {event: 'pmessage_buffer', pattern: pattern, channel: channel, message: message});
 });
 
 redisSubscribedClient.on('subscribe', (channel, count) => {
@@ -271,6 +299,7 @@ redisSubscribedClient.on('subscribe', (channel, count) => {
 
 redisSubscribedClient.on('psubscribe', (pattern, count) => {
 
+    notifySubscribersOnPatternEvent(pattern, {event: 'psubscribe', pattern: pattern, count: count});
 });
 
 redisSubscribedClient.on('unsubscribe', (channel, count) => {
@@ -280,6 +309,7 @@ redisSubscribedClient.on('unsubscribe', (channel, count) => {
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
 
+    notifySubscribersOnPatternEvent(pattern, {event: 'punsubscribe', pattern: pattern, count: count});
 });
 
 //-----------------------------
@@ -327,7 +357,7 @@ fluidsync.on(proxyChannel, function (data)
         {
             subscribe(message, 'addPattern', command);
         }
-        else if(command === 'UNSUBSCRIBE')
+        else if((command === 'UNSUBSCRIBE') || (command === 'PUNSUBSCRIBE'))
         {
             unsubscribe(message, command)            
         }
