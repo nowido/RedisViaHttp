@@ -44,6 +44,8 @@ const pubsubCommands =
 const channelPrefix = 'rc#';
 const patternPrefix = 'rp#';
 
+const channelPrefixLength = channelPrefix.length;
+
 var subscriptionsRegistry = 
 {
         // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
@@ -173,11 +175,11 @@ function removeSubscription(channelId, eventChannelId)
 
 //-----------------------------
 
-function subscribeForChannels(message)
+function subscribe(message, method, command)
 {
-    let channels = message.args;
+    let entries = message.args;
 
-    if(channels === undefined)
+    if(entries === undefined)
     {
         return;
     }
@@ -189,31 +191,31 @@ function subscribeForChannels(message)
         return;
     }
 
-        // add channels to registry in presumption that Redis takes them correctly
+        // add entries (channels or patterns) to registry in presumption that Redis takes them correctly
 
-    let count = channels.length;
+    let count = entries.length;
 
     for(let i = 0; i < count; ++i)
     {
-        subscriptionsRegistry.addChannel(channels[i], eventChannel);        
+        subscriptionsRegistry[method](entries[i], eventChannel);        
     }            
 
-    redisSubscribedClient.send_command('subscribe', channels, (err, reply) => {        
+    redisSubscribedClient.send_command(command, entries, (err, reply) => {        
 
         sendReply(message, err, reply);        
-    });    
+    });        
 }
 
-function unsubscribeFromChannels(message)
+function unsubscribe(message, command)
 {
-    let channels = message.args;
+    let entries = message.args;
 
-    if(channels === undefined)
+    if(entries === undefined)
     {
         return;
     }
         
-    redisSubscribedClient.send_command('unsubscribe', channels, (err, reply) => {        
+    redisSubscribedClient.send_command(command, entries, (err, reply) => {        
 
         sendReply(message, err, reply);        
     });    
@@ -222,24 +224,26 @@ function unsubscribeFromChannels(message)
     // let time-license garbage collector do it later
 }
 
-function notifySubscribers(channel, message)
+function notifySubscribersOnChannelEvent(channel, message)
 {
-    let prefixedChannelId = 'rc#' + channel;
+    let prefixedChannel = channelPrefix + channel;
 
-    let subscribers = subscriptionsRegistry.channels[prefixedChannelId];    
+    let subscribers = subscriptionsRegistry.channels[prefixedChannel];    
 
     if(subscribers === undefined)
     {
         return;
     }
 
-    let eventChannelsIds = Object.keys(subscribers);
+    let eventChannels = Object.keys(subscribers);
     
-    let subscribersCount = eventChannelsIds.length;
+    let count = eventChannels.length;
 
-    for(let i = 0; i < subscribersCount; ++i)
+    for(let i = 0; i < count; ++i)
     {
-        fluidsync.emit('publish', {channel: eventChannelsIds[i], from: proxyName, payload: message});     
+        let eventChannel = eventChannels[i].substr(channelPrefixLength);
+
+        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});     
     }
 }
 
@@ -262,7 +266,7 @@ redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => {
 
 redisSubscribedClient.on('subscribe', (channel, count) => {
 
-    notifySubscribers(channel, {event: 'subscribe', channel: channel, count: count});
+    notifySubscribersOnChannelEvent(channel, {event: 'subscribe', channel: channel, count: count});
 });
 
 redisSubscribedClient.on('psubscribe', (pattern, count) => {
@@ -271,7 +275,7 @@ redisSubscribedClient.on('psubscribe', (pattern, count) => {
 
 redisSubscribedClient.on('unsubscribe', (channel, count) => {
 
-    notifySubscribers(channel, {event: 'unsubscribe', channel: channel, count: count});
+    notifySubscribersOnChannelEvent(channel, {event: 'unsubscribe', channel: channel, count: count});
 });
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
@@ -317,11 +321,15 @@ fluidsync.on(proxyChannel, function (data)
     {
         if(command === 'SUBSCRIBE')
         {
-            subscribeForChannels(message);    
+            subscribe(message, 'addChannel', command);            
+        }
+        else if(command === 'PSUBSCRIBE')
+        {
+            subscribe(message, 'addPattern', command);
         }
         else if(command === 'UNSUBSCRIBE')
         {
-            unsubscribeFromChannels(message);
+            unsubscribe(message, command)            
         }
     }
     else
