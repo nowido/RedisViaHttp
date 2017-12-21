@@ -1,3 +1,5 @@
+import { setInterval } from 'timers';
+
     // Redis client
 const redis = require('redis');
 
@@ -11,6 +13,7 @@ const redisClient = redis.createClient(redisConfig);
 const redisSubscribedClient = redisClient.duplicate();
 
 redisClient.on('error', console.log);
+redisSubscribedClient.on('error', console.log);
 
 //-----------------------------
 
@@ -30,7 +33,7 @@ const proxyChannel = 'redis-command-' + proxyName;
 // Redis PubSub stuff
 //-----------------------------
 
-    // commands subset for Redis Subscribe mode 
+    // commands subset for Redis Subscriber mode 
 const pubsubCommands = 
 {
     'PSUBSCRIBE': true,        
@@ -98,24 +101,7 @@ subscriptionsRegistry.addChannel = (channel, eventChannel) =>
 
     entry[prefixedEventChannel] = true;    
 
-        // add to reverse dictionary
-    
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
-
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-    if(reverseEntry === undefined)
-    {
-        reverseEntry = reverseRegistry[prefixedEventChannel] = 
-        {
-            channels: {},
-            patterns: {}                
-        };
-    }    
-
-    reverseEntry.timestamp = Date.now();
-
-    reverseEntry.channels[prefixedChannel] = true;
+    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedChannel, 'channels');
 };
 
     //
@@ -134,9 +120,12 @@ subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
     }
 
     entry[prefixedEventChannel] = true;    
+        
+    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedPattern, 'patterns');
+};
 
-        // add to reverse dictionary
-    
+subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedToken, dictionary) => 
+{
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
     let reverseEntry = reverseRegistry[prefixedEventChannel];
@@ -152,8 +141,18 @@ subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
 
     reverseEntry.timestamp = Date.now();
 
-    reverseEntry.patterns[prefixedPattern] = true;        
+    if((dictionary !== undefined) && (prefixedToken !== undefined))
+    {
+        reverseEntry[dictionary][prefixedToken] = true;    
+    }    
 };
+
+subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => {
+        
+    // remove the eventChannel (iterate over all its channels/patterns in direct dictionary,
+    //  then remove it from reverse dictionary)    
+
+}
 
 //-----------------------------
 
@@ -200,6 +199,11 @@ function subscribe(message, method, command)
         subscriptionsRegistry[method](entries[i], eventChannel);        
     }            
 
+    if(!garbageCollectionPresent)
+    {
+        setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
+    }
+    
     redisSubscribedClient.send_command(command, entries, (err, reply) => {        
 
         sendReply(message, err, reply);        
@@ -220,7 +224,7 @@ function unsubscribe(message, command)
         sendReply(message, err, reply);        
     });    
 
-    // we do not clean up subscriptions registry for gone subscriber right now;    
+    // we do not clean up subscriptions registry for gone subscription right now;    
     // let time-license garbage collector do it later
 }
 
@@ -274,43 +278,103 @@ function notifySubscribersOnPatternEvent(pattern, message)
 
 redisSubscribedClient.on('message', (channel, message) => {
 
-    notifySubscribersOnChannelEvent(channel, {event: 'message', channel: channel, message: message});    
+    notifySubscribersOnChannelEvent(channel, 
+        {event: 'message', channel: channel, message: message});    
 });
 
 redisSubscribedClient.on('pmessage', (pattern, channel, message) => {
     
-    notifySubscribersOnPatternEvent(pattern, {event: 'pmessage', pattern: pattern, channel: channel, message: message});
+    notifySubscribersOnPatternEvent(pattern, 
+        {event: 'pmessage', pattern: pattern, channel: channel, message: message});
 });
 
+/*
 redisSubscribedClient.on('message_buffer', (channel, message) => {
 
-    notifySubscribersOnChannelEvent(channel, {event: 'message_buffer', channel: channel, message: message});
+    notifySubscribersOnChannelEvent(channel, 
+        {event: 'message_buffer', channel: channel, message: message});
 });
 
 redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => {
 
-    notifySubscribersOnPatternEvent(pattern, {event: 'pmessage_buffer', pattern: pattern, channel: channel, message: message});
+    notifySubscribersOnPatternEvent(pattern, 
+        {event: 'pmessage_buffer', pattern: pattern, channel: channel, message: message});
 });
+*/
 
 redisSubscribedClient.on('subscribe', (channel, count) => {
 
-    notifySubscribersOnChannelEvent(channel, {event: 'subscribe', channel: channel, count: count});
+    notifySubscribersOnChannelEvent(channel, 
+        {event: 'subscribe', channel: channel, count: count});
 });
 
 redisSubscribedClient.on('psubscribe', (pattern, count) => {
 
-    notifySubscribersOnPatternEvent(pattern, {event: 'psubscribe', pattern: pattern, count: count});
+    notifySubscribersOnPatternEvent(pattern, 
+        {event: 'psubscribe', pattern: pattern, count: count});
 });
 
 redisSubscribedClient.on('unsubscribe', (channel, count) => {
 
-    notifySubscribersOnChannelEvent(channel, {event: 'unsubscribe', channel: channel, count: count});
+    notifySubscribersOnChannelEvent(channel, 
+        {event: 'unsubscribe', channel: channel, count: count});
 });
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
 
-    notifySubscribersOnPatternEvent(pattern, {event: 'punsubscribe', pattern: pattern, count: count});
+    notifySubscribersOnPatternEvent(pattern, 
+        {event: 'punsubscribe', pattern: pattern, count: count});
 });
+
+//-----------------------------
+
+function updateTimeLicense(message)
+{
+    let eventChannel = message.eventChannel;
+
+    if(typeof eventChannel !== 'string')
+    {
+        return;
+    }
+
+    let prefixedEventChannel = channelPrefix + eventChannel;
+
+    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel);
+}
+
+//-----------------------------
+
+const GARBAGE_COLLECTOR_PERIOD = 20 * 60 * 1000; // 20 min
+
+const TIME_LICENSE_PERIOD = 30 * 60 * 1000; // 30 min
+
+var garbageCollectionPresent = false;
+
+    //
+function onGarbageCollectorTick()
+{
+    let timeNow = Date.now();
+
+    let reverseRegistry = subscriptionsRegistry.eventChannels;
+
+    let prefixedEventChannels = Object.keys(reverseRegistry);
+
+    let count = prefixedEventChannels.length;
+
+    for(let i = 0; i < count; ++i)
+    {
+        let prefixedEventChannel = prefixedEventChannels[i];
+
+        let reverseEntry = reverseRegistry[prefixedEventChannel];
+
+        let age = reverseEntry.timestamp - timeNow;
+
+        if(age >= TIME_LICENSE_PERIOD)
+        {
+            subscriptionsRegistry.removeSubscription(prefixedEventChannel);
+        }
+    }
+}
 
 //-----------------------------
 
@@ -347,7 +411,11 @@ fluidsync.on(proxyChannel, function (data)
 
     command = command.toUpperCase();
 
-    if(pubsubCommands[command])
+    if(command === 'HEARTBEAT')
+    {
+        updateTimeLicense(message);
+    }
+    else if(pubsubCommands[command])
     {
         if(command === 'SUBSCRIBE')
         {
@@ -382,7 +450,8 @@ function sendReply(message, err, reply)
         return;
     }
 
-    fluidsync.emit('publish', {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
+    fluidsync.emit('publish', 
+        {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
 }
 
 //-----------------------------
