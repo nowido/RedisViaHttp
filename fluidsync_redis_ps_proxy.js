@@ -8,6 +8,10 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
     this.registry = {};
 
+    this.heartBeat = false;
+
+    this.heartBeatPeriod = 10 * 60 * 1000; // 10 min
+
     this.redisSocket.on('connect', () => {
 
         this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
@@ -54,11 +58,15 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 redisProxy.prototype.pubsubCommands = 
 {
     'PSUBSCRIBE': true,
-    'PUBLISH': true,
-    'PUBSUB': true,
     'PUNSUBSCRIBE': true,
     'SUBSCRIBE': true,
     'UNSUBSCRIBE': true
+};
+
+redisProxy.prototype.subscribeCommands = 
+{
+    'PSUBSCRIBE': true,
+    'SUBSCRIBE': true
 };
 
 redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
@@ -88,7 +96,35 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
     if(this.pubsubCommands[command])
     {
         commandPayload.eventChannel = this.eventChannel;
+
+        this.checkHeartBeat(command);
     }
 
-    this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+    this.redisSocket.emit('publish', 
+        {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+}
+
+redisProxy.prototype.checkHeartBeat = function(command)
+{
+    if(this.subscribeCommands[command])
+    {
+        if(!this.heartBeat)
+        {
+            this.heartBeatIntervalId = setInterval(this.onHeartBeat.bind(this), this.heartBeatPeriod);
+
+            this.heartBeat = true;
+        }            
+    }
+}
+
+redisProxy.prototype.onHeartBeat = function()
+{
+    let commandPayload = 
+    {
+        eventChannel: this.eventChannel,                
+        command: 'heartbeat'
+    };
+    
+    this.redisSocket.emit('publish', 
+        {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
 }
