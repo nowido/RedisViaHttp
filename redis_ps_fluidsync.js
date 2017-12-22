@@ -266,7 +266,11 @@ function subscribe(message, method, command)
 
     if(!garbageCollectionPresent)
     {
-        setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
+        garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
+
+        garbageCollectionPresent = true;
+
+        //console.log('garbage collector is now on');        
     }
     
     redisSubscribedClient.send_command(command, entries, (err, reply) => {        
@@ -396,11 +400,12 @@ function updateTimeLicense(message)
 
 //-----------------------------
 
-const GARBAGE_COLLECTOR_PERIOD = 20 * 60 * 1000; // 20 min
+const GARBAGE_COLLECTOR_PERIOD = 20 * 1000; // 20 min
 
-const TIME_LICENSE_PERIOD = 30 * 60 * 1000; // 30 min
+const TIME_LICENSE_PERIOD = 30 * 1000; // 30 min
 
 var garbageCollectionPresent = false;
+var garbageCollectionIntervalId;
 
     //
 function onGarbageCollectorTick()
@@ -417,12 +422,23 @@ function onGarbageCollectorTick()
 
         let reverseEntry = reverseRegistry[prefixedEventChannel];
 
-        let age = reverseEntry.timestamp - timeNow;
+        let age = timeNow - reverseEntry.timestamp;
+
+        //console.log(prefixedEventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
 
         if(age >= TIME_LICENSE_PERIOD)
         {
             subscriptionsRegistry.removeSubscription(prefixedEventChannel);
         }
+    }
+
+    if(Object.keys(reverseRegistry).length === 0)
+    {
+        clearInterval(garbageCollectionIntervalId);
+
+        garbageCollectionPresent = false;
+
+        //console.log('garbage collector is now off');
     }
 }
 
