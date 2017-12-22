@@ -295,6 +295,18 @@ function unsubscribe(message, command)
 
     // we do not clean up subscriptions registry for gone subscription right now;    
     // let time-license garbage collector do it later
+
+    // mark entries (channels or patterns) as 'marked to remove' for eventChannel
+
+    let eventChannel = message.eventChannel;
+
+    if(typeof eventChannel !== 'string')
+    {
+        return;
+    }
+    
+    // mark them as 'false', not 'true'
+    // use add... functions, but with additional parameter
 }
 
 function notifySubscribersOnChannelEvent(channel, message)
@@ -374,12 +386,16 @@ redisSubscribedClient.on('unsubscribe', (channel, count) => {
 
     notifySubscribersOnChannelEvent(channel, 
         {event: 'unsubscribe', channel: channel, count: count});
+
+    // cleanup eventChannels marked as false in channels dictionary (and check up reverse dictionary)
 });
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
 
     notifySubscribersOnPatternEvent(pattern, 
         {event: 'punsubscribe', pattern: pattern, count: count});
+
+    // cleanup eventChannels marked as false in patterns dictionary (and check up reverse dictionary)
 });
 
 //-----------------------------
