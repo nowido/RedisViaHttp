@@ -1,5 +1,3 @@
-import { setInterval } from 'timers';
-
     // Redis client
 const redis = require('redis');
 
