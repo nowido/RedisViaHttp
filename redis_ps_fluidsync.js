@@ -51,26 +51,29 @@ const patternPrefixLength = patternPrefix.length;
 var subscriptionsRegistry = 
 {
         // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
-        // this object is keyed with 'some channels' 
-        // and contains objects keyed with 'event channels'
+        // this object is keyed with 'some channels' (prefixed)
+        // and contains objects keyed with 'event channels' (prefixed)
     channels: 
     {
         /*
-        {eventChannels} 
+        {prefixed eventChannels} 
         */
     },
 
         // dictionary to register remote listeners ('event channels') subscribed for 'some pattern'
-        // this object is keyed with 'some patterns' 
-        // and contains objects keyed with 'event channels'
+        // this object is keyed with 'some patterns' (prefixed) 
+        // and contains objects keyed with 'event channels' (prefixed)
     patterns: 
     {
         /*
-        {eventChannels} 
+        {prefixed eventChannels} 
         */
     },
 
-        // 'reverse dictionary' to speed up registry management
+        // reverse dictionary to speed up registry management
+        // this object is keyed with 'event channels' (prefixed)
+        // and contains object keyed with 'some channels' and 'some patterns',
+        // so we can remove client's subscriptions without iterating over direct dictionaries
     eventChannels: 
     {
         /*
@@ -89,16 +92,7 @@ subscriptionsRegistry.addChannel = (channel, eventChannel) =>
     let prefixedChannel = channelPrefix + channel;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    let channels = subscriptionsRegistry.channels;
-
-    let entry = channels[prefixedChannel];
-
-    if(entry === undefined)
-    {
-        entry = channels[prefixedChannel] = {};
-    }
-
-    entry[prefixedEventChannel] = true;    
+    subscriptionsRegistry.addToDirectDictionary(prefixedEventChannel, prefixedChannel, 'channels')
 
     subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedChannel, 'channels');
 };
@@ -109,19 +103,24 @@ subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
     let prefixedPattern = patternPrefix + pattern;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    let patterns = subscriptionsRegistry.patterns;
+    subscriptionsRegistry.addToDirectDictionary(prefixedEventChannel, prefixedPattern, 'patterns')
 
-    let entry = patterns[prefixedPattern];
+    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedPattern, 'patterns');
+};
+
+subscriptionsRegistry.addToDirectDictionary = (prefixedEventChannel, prefixedToken, dictionary) =>
+{
+    let tokens = subscriptionsRegistry[dictionary];
+
+    let entry = tokens[prefixedToken];
 
     if(entry === undefined)
     {
-        entry = patterns[prefixedPattern] = {};
+        entry = tokens[prefixedToken] = {};
     }
 
-    entry[prefixedEventChannel] = true;    
-        
-    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedPattern, 'patterns');
-};
+    entry[prefixedEventChannel] = true;        
+}
 
 subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedToken, dictionary) => 
 {
@@ -148,7 +147,9 @@ subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedTo
 
 subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => {
 
-    let reverseEntry = subscriptionsRegistry.eventChannels[prefixedEventChannel];
+    let reverseRegistry = subscriptionsRegistry.eventChannels;
+
+    let reverseEntry = reverseRegistry[prefixedEventChannel];
 
     if(reverseEntry === undefined)
     {
@@ -258,9 +259,7 @@ function subscribe(message, method, command)
 
         // add entries (channels or patterns) to registry in presumption that Redis takes them correctly
 
-    let count = entries.length;
-
-    for(let i = 0; i < count; ++i)
+    for(let i = 0; i < entries.length; ++i)
     {
         subscriptionsRegistry[method](entries[i], eventChannel);        
     }            
@@ -298,30 +297,19 @@ function notifySubscribersOnChannelEvent(channel, message)
 {
     let prefixedChannel = channelPrefix + channel;
 
-    let subscribers = subscriptionsRegistry.channels[prefixedChannel];    
-
-    if(subscribers === undefined)
-    {
-        return;
-    }
-
-    let eventChannels = Object.keys(subscribers);
-    
-    let count = eventChannels.length;
-
-    for(let i = 0; i < count; ++i)
-    {
-        let eventChannel = eventChannels[i].substr(channelPrefixLength);
-
-        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});     
-    }
+    notifySubscribersOnPubsubEvent(prefixedChannel, 'channels', message);
 }
 
 function notifySubscribersOnPatternEvent(pattern, message)
 {
-    let prefixedChannel = patternPrefix + pattern;
+    let prefixedPattern = patternPrefix + pattern;
 
-    let subscribers = subscriptionsRegistry.patterns[prefixedChannel];    
+    notifySubscribersOnPubsubEvent(prefixedPattern, 'patterns', message);
+}
+
+function notifySubscribersOnPubsubEvent(prefixedToken, dictionary, message)
+{
+    let subscribers = subscriptionsRegistry[dictionary][prefixedToken];    
 
     if(subscribers === undefined)
     {
@@ -330,9 +318,7 @@ function notifySubscribersOnPatternEvent(pattern, message)
 
     let eventChannels = Object.keys(subscribers);
     
-    let count = eventChannels.length;
-
-    for(let i = 0; i < count; ++i)
+    for(let i = 0; i < eventChannels.length; ++i)
     {
         let eventChannel = eventChannels[i].substr(channelPrefixLength);
 
@@ -425,9 +411,7 @@ function onGarbageCollectorTick()
 
     let prefixedEventChannels = Object.keys(reverseRegistry);
 
-    let count = prefixedEventChannels.length;
-
-    for(let i = 0; i < count; ++i)
+    for(let i = 0; i < prefixedEventChannels.length; ++i)
     {
         let prefixedEventChannel = prefixedEventChannels[i];
 
