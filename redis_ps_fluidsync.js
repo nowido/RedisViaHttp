@@ -46,6 +46,7 @@ const channelPrefix = 'rc#';
 const patternPrefix = 'rp#';
 
 const channelPrefixLength = channelPrefix.length;
+const patternPrefixLength = patternPrefix.length;
 
 var subscriptionsRegistry = 
 {
@@ -146,29 +147,96 @@ subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedTo
 };
 
 subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => {
-        
-    // remove the eventChannel (iterate over all its channels/patterns in direct dictionary,
-    //  then remove it from reverse dictionary)    
 
-}
+    let reverseEntry = subscriptionsRegistry.eventChannels[prefixedEventChannel];
 
-//-----------------------------
-
-/*
-function removeSubscription(channelId, eventChannelId)
-{
-    let prefixedChannelId = 'rc#' + channelId;
-
-    let channels = subscriptionsRegistry.channels;
-
-    let entry = channels[prefixedChannelId];
-
-    if(entry !== undefined)
+    if(reverseEntry === undefined)
     {
-        delete entry[eventChannelId];
+        return;
+    }
+
+    let prefixedChannelsKeys = undefined;
+
+    if(reverseEntry.channels !== undefined)
+    {
+        prefixedChannelsKeys = Object.keys(reverseEntry.channels);
+    }
+
+    let prefixedPatternsKeys = undefined;
+
+    if(reverseEntry.patterns !== undefined)
+    {
+        prefixedPatternsKeys = Object.keys(reverseEntry.patterns);
+    }
+    
+    let channelsKeys = undefined;
+
+    if(prefixedChannelsKeys)
+    {
+        channelsKeys = [];
+
+        let channels = subscriptionsRegistry.channels;
+
+        for(let i = 0; i < prefixedChannelsKeys.length; ++i)
+        {
+            let prefixedChannel = prefixedChannelsKeys[i];
+
+            channelsKeys[i] = prefixedChannel.substr(channelPrefixLength);
+
+            let subscribers = channels[prefixedChannel];
+
+            if(subscribers !== undefined)
+            {
+                delete subscribers[prefixedEventChannel];
+            }            
+
+            if(Object.keys(subscribers).length === 0)
+            {
+                delete channels[prefixedChannel];
+            }
+        }
+    }
+
+    let patternsKeys = undefined;
+
+    if(prefixedPatternsKeys)
+    {
+        patternsKeys = [];
+
+        let patterns = subscriptionsRegistry.patterns;
+
+        for(let i = 0; i < prefixedPatternsKeys.length; ++i)
+        {
+            let prefixedPattern = prefixedPatternsKeys[i];
+
+            patternsKeys[i] = prefixedPattern.substr(patternPrefixLength);
+
+            let subscribers = patterns[prefixedPattern]; 
+
+            if(subscribers !== undefined)
+            {
+                delete subscribers[prefixedEventChannel];
+            }                        
+
+            if(Object.keys(subscribers).length === 0)
+            {
+                delete patterns[prefixedPattern]; 
+            }
+        }        
+    }
+
+    delete reverseRegistry[prefixedEventChannel];
+
+    if(channelsKeys && (channelsKeys.length > 0))
+    {
+        redisSubscribedClient.send_command('unsubscribe', channelsKeys);
+    }
+    
+    if(patternsKeys && (patternsKeys.length > 0))
+    {
+        redisSubscribedClient.send_command('punsubscribe', patternsKeys);
     }
 }
-*/
 
 //-----------------------------
 
