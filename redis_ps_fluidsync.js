@@ -48,6 +48,12 @@ const patternPrefix = 'rp#';
 const channelPrefixLength = channelPrefix.length;
 const patternPrefixLength = patternPrefix.length;
 
+const TOUCHED       = 7;
+
+const SUBSCRIBED    = 3;
+const UNSUBSCRIBED  = 2;
+const INACTIVE      = 1;
+
 var subscriptionsRegistry = 
 {
         // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
@@ -87,28 +93,28 @@ var subscriptionsRegistry =
 };
 
     //
-subscriptionsRegistry.addChannel = (isActive, channel, eventChannel) =>
+subscriptionsRegistry.addChannel = (entryMark, channel, eventChannel) =>
 {    
     let prefixedChannel = channelPrefix + channel;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToDirectDictionary(isActive, prefixedEventChannel, prefixedChannel, 'channels')
+    subscriptionsRegistry.addToDirectDictionary(entryMark, prefixedEventChannel, prefixedChannel, 'channels')
 
-    subscriptionsRegistry.addToReverseDictionary(isActive, prefixedEventChannel, prefixedChannel, 'channels');
+    subscriptionsRegistry.addToReverseDictionary(entryMark, prefixedEventChannel, prefixedChannel, 'channels');
 };
 
     //
-subscriptionsRegistry.addPattern = (isActive, pattern, eventChannel) =>
+subscriptionsRegistry.addPattern = (entryMark, pattern, eventChannel) =>
 {    
     let prefixedPattern = patternPrefix + pattern;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToDirectDictionary(isActive, prefixedEventChannel, prefixedPattern, 'patterns')
+    subscriptionsRegistry.addToDirectDictionary(entryMark, prefixedEventChannel, prefixedPattern, 'patterns')
 
-    subscriptionsRegistry.addToReverseDictionary(isActive, prefixedEventChannel, prefixedPattern, 'patterns');
+    subscriptionsRegistry.addToReverseDictionary(entryMark, prefixedEventChannel, prefixedPattern, 'patterns');
 };
 
-subscriptionsRegistry.addToDirectDictionary = (isActive, prefixedEventChannel, prefixedToken, dictionary) =>
+subscriptionsRegistry.addToDirectDictionary = (entryMark, prefixedEventChannel, prefixedToken, dictionary) =>
 {
     let tokens = subscriptionsRegistry[dictionary];
 
@@ -119,10 +125,10 @@ subscriptionsRegistry.addToDirectDictionary = (isActive, prefixedEventChannel, p
         entry = tokens[prefixedToken] = {};
     }
 
-    entry[prefixedEventChannel] = isActive;        
+    entry[prefixedEventChannel] = entryMark;        
 }
 
-subscriptionsRegistry.addToReverseDictionary = (isActive, prefixedEventChannel, prefixedToken, dictionary) => 
+subscriptionsRegistry.addToReverseDictionary = (entryMark, prefixedEventChannel, prefixedToken, dictionary) => 
 {
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
@@ -141,7 +147,7 @@ subscriptionsRegistry.addToReverseDictionary = (isActive, prefixedEventChannel, 
 
     if((dictionary !== undefined) && (prefixedToken !== undefined))
     {
-        reverseEntry[dictionary][prefixedToken] = isActive;    
+        reverseEntry[dictionary][prefixedToken] = entryMark;    
     }    
 };
 
@@ -181,7 +187,7 @@ subscriptionsRegistry.removeInactiveFromDirectDictionary = (prefixedToken, dicti
         {
             let prefixedEventChannel = prefixedEventChannelsKeys[i];
 
-            if(entry[prefixedEventChannel] === false)
+            if(entry[prefixedEventChannel] === INACTIVE)
             {
                 inactivePrefixedEventChannels.push(prefixedEventChannel);    
 
@@ -215,7 +221,7 @@ subscriptionsRegistry.removeInactiveFromReverseDictionary = (inactivePrefixedEve
             {
                 let tokenKey = tokenKeys[j];
 
-                if(tokens[tokenKey] === false)
+                if(tokens[tokenKey] === INACTIVE)
                 {
                     delete tokens[tokenKey];
                 }
@@ -263,9 +269,7 @@ subscriptionsRegistry.removeSubscription = (prefixedEventChannel) =>
         for(let i = 0; i < prefixedChannelsKeys.length; ++i)
         {
             let prefixedChannel = prefixedChannelsKeys[i];
-
-            channelsKeys[i] = prefixedChannel.substr(channelPrefixLength);
-
+            
             let subscribers = channels[prefixedChannel];
 
             if(subscribers !== undefined)
@@ -275,6 +279,8 @@ subscriptionsRegistry.removeSubscription = (prefixedEventChannel) =>
 
             if(Object.keys(subscribers).length === 0)
             {
+                channelsKeys.push(prefixedChannel.substr(channelPrefixLength));
+
                 delete channels[prefixedChannel];
             }
         }
@@ -291,9 +297,7 @@ subscriptionsRegistry.removeSubscription = (prefixedEventChannel) =>
         for(let i = 0; i < prefixedPatternsKeys.length; ++i)
         {
             let prefixedPattern = prefixedPatternsKeys[i];
-
-            patternsKeys[i] = prefixedPattern.substr(patternPrefixLength);
-
+            
             let subscribers = patterns[prefixedPattern]; 
 
             if(subscribers !== undefined)
@@ -303,6 +307,8 @@ subscriptionsRegistry.removeSubscription = (prefixedEventChannel) =>
 
             if(Object.keys(subscribers).length === 0)
             {
+                patternsKeys.push(prefixedPattern.substr(patternPrefixLength));
+
                 delete patterns[prefixedPattern]; 
             }
         }        
@@ -343,7 +349,7 @@ function subscribe(message, method, command)
 
     for(let i = 0; i < entries.length; ++i)
     {
-        subscriptionsRegistry[method](true, entries[i], eventChannel);        
+        subscriptionsRegistry[method](SUBSCRIBED, entries[i], eventChannel);        
     }            
 
     if(!garbageCollectionPresent)
@@ -372,7 +378,7 @@ function unsubscribe(message, method, command)
         
     // we do not clean up subscriptions registry for gone subscription right now,    
     // because we need to inform unsubscribing client on further 'unsubscribe' events;
-    // so, we modify registry entries (channels or patterns) marking them as 'inactive' (but present)
+    // so, we modify registry entries (channels or patterns) marking them as 'unsubscribed' (but present)
 
     // we unregister in presumption that Redis takes unsubscriptions correctly
 
@@ -382,7 +388,7 @@ function unsubscribe(message, method, command)
     {
         for(let i = 0; i < entries.length; ++i)
         {
-            subscriptionsRegistry[method](false, entries[i], eventChannel);        
+            subscriptionsRegistry[method](UNSUBSCRIBED, entries[i], eventChannel);        
         }                        
     }
         
@@ -392,21 +398,7 @@ function unsubscribe(message, method, command)
     });    
 }
 
-function notifySubscribersOnChannelEvent(channel, message)
-{
-    let prefixedChannel = channelPrefix + channel;
-
-    notifySubscribersOnPubsubEvent(prefixedChannel, 'channels', message);
-}
-
-function notifySubscribersOnPatternEvent(pattern, message)
-{
-    let prefixedPattern = patternPrefix + pattern;
-
-    notifySubscribersOnPubsubEvent(prefixedPattern, 'patterns', message);
-}
-
-function notifySubscribersOnPubsubEvent(prefixedToken, dictionary, message)
+function notifySubscribersOnPubsubEvent(entryFilter, newEntryState, prefixedToken, dictionary, message)
 {
     let subscribers = subscriptionsRegistry[dictionary][prefixedToken];    
 
@@ -415,13 +407,22 @@ function notifySubscribersOnPubsubEvent(prefixedToken, dictionary, message)
         return;
     }
 
-    let eventChannels = Object.keys(subscribers);
+    let prefixedEventChannelsKeys = Object.keys(subscribers);
     
-    for(let i = 0; i < eventChannels.length; ++i)
+    for(let i = 0; i < prefixedEventChannelsKeys.length; ++i)
     {
-        let eventChannel = eventChannels[i].substr(channelPrefixLength);
+        let prefixedEventChannel = prefixedEventChannelsKeys[i];
 
-        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});     
+        let entry = subscribers[prefixedEventChannel];
+
+        if(entry === entryFilter)
+        {
+            entry = newEntryState;
+
+            let eventChannel = prefixedEventChannel.substr(channelPrefixLength);
+
+            fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});                 
+        }                
     }
 }
 
@@ -429,14 +430,24 @@ function notifySubscribersOnPubsubEvent(prefixedToken, dictionary, message)
 
 redisSubscribedClient.on('message', (channel, message) => {
 
-    notifySubscribersOnChannelEvent(channel, 
-        {event: 'message', channel: channel, message: message});    
+        // notify only SUBSCRIBED entries
+
+    let prefixedChannel = channelPrefix + channel;
+
+    let wrappedMessage = {event: 'message', channel: channel, message: message};
+
+    notifySubscribersOnPubsubEvent(SUBSCRIBED, SUBSCRIBED, prefixedChannel, 'channels', wrappedMessage);
 });
 
 redisSubscribedClient.on('pmessage', (pattern, channel, message) => {
     
-    notifySubscribersOnPatternEvent(pattern, 
-        {event: 'pmessage', pattern: pattern, channel: channel, message: message});
+        // notify only SUBSCRIBED entries
+
+    let prefixedPattern = patternPrefix + pattern;
+
+    let wrappedMessage = {event: 'pmessage', pattern: pattern, channel: channel, message: message};
+
+    notifySubscribersOnPubsubEvent(SUBSCRIBED, SUBSCRIBED, prefixedPattern, 'patterns', wrappedMessage);
 });
 
 /*
@@ -455,28 +466,53 @@ redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => {
 
 redisSubscribedClient.on('subscribe', (channel, count) => {
 
-    notifySubscribersOnChannelEvent(channel, 
-        {event: 'subscribe', channel: channel, count: count});
+        // notify only SUBSCRIBED entries
+
+    let prefixedChannel = channelPrefix + channel;
+
+    let wrappedMessage = {event: 'subscribe', channel: channel, count: count};
+
+    notifySubscribersOnPubsubEvent(SUBSCRIBED, SUBSCRIBED, prefixedChannel, 'channels', wrappedMessage);
 });
 
 redisSubscribedClient.on('psubscribe', (pattern, count) => {
 
-    notifySubscribersOnPatternEvent(pattern, 
-        {event: 'psubscribe', pattern: pattern, count: count});
+        // notify only SUBSCRIBED entries
+
+    let prefixedPattern = patternPrefix + pattern;
+
+    let wrappedMessage = {event: 'psubscribe', pattern: pattern, count: count};
+
+    notifySubscribersOnPubsubEvent(SUBSCRIBED, SUBSCRIBED, prefixedPattern, 'patterns', wrappedMessage);
 });
 
 redisSubscribedClient.on('unsubscribe', (channel, count) => {
 
-    notifySubscribersOnChannelEvent(channel, 
-        {event: 'unsubscribe', channel: channel, count: count});
+        // notify only UNSUBSCRIBED entries and mark them as INACTIVE
+
+    let prefixedChannel = channelPrefix + channel;
+
+    let wrappedMessage = {event: 'unsubscribe', channel: channel, count: count};
+
+    notifySubscribersOnPubsubEvent(UNSUBSCRIBED, INACTIVE, prefixedChannel, 'channels', wrappedMessage);
+
+        // remove INACTIVE entries after notification
 
     subscriptionsRegistry.removeInactiveChannel(channel);
 });
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
 
-    notifySubscribersOnPatternEvent(pattern, 
-        {event: 'punsubscribe', pattern: pattern, count: count});
+        // notify only UNSUBSCRIBED entries,
+        //  and mark them as INACTIVE
+
+    let prefixedPattern = patternPrefix + pattern;
+
+    let wrappedMessage = {event: 'punsubscribe', pattern: pattern, count: count};
+
+    notifySubscribersOnPubsubEvent(UNSUBSCRIBED, INACTIVE, prefixedPattern, 'patterns', wrappedMessage);
+
+        // remove INACTIVE entries after notification
 
     subscriptionsRegistry.removeInactivePattern(pattern);
 });
@@ -494,14 +530,14 @@ function updateTimeLicense(message)
 
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToReverseDictionary(true, prefixedEventChannel);
+    subscriptionsRegistry.addToReverseDictionary(TOUCHED, prefixedEventChannel);
 }
 
 //-----------------------------
 
-const GARBAGE_COLLECTOR_PERIOD = 20 * 1000; // 20 min
+const GARBAGE_COLLECTOR_PERIOD = 20 * 60 * 1000; // 20 min
 
-const TIME_LICENSE_PERIOD = 30 * 1000; // 30 min
+const TIME_LICENSE_PERIOD = 30 * 60 * 1000; // 30 min
 
 var garbageCollectionPresent = false;
 var garbageCollectionIntervalId;
