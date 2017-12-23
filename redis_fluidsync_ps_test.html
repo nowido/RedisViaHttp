@@ -63,20 +63,23 @@
             sendButton.click(() => 
             {
                 redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {
+                    //console.log(err);
                     print('error: ' + err);
                     print('reply: ' + reply);                
                 });
             });      
             
             subscribeButton.click(() => {
-                redis.sendCommand('subscribe', ['poo'], (err, reply) => {
+                redis.sendCommand('subscribe', ['poo', 'pee'], (err, reply) => {
+                    //console.log(reply);
                     print('error: ' + err);
                     print('reply: ' + reply);                
                 });                    
             });
                         
             unsubscribeButton.click(() => {
-                redis.sendCommand('unsubscribe', ['poo'], (err, reply) => {
+                redis.sendCommand('unsubscribe', ['pee', 'poo'], (err, reply) => {
+                    //console.log(reply);
                     print('error: ' + err);
                     print('reply: ' + reply);                
                 });                                    
@@ -104,11 +107,11 @@
     </button>   
 
     <button id="subscribeButton">
-        Subscribe poo
+        Subscribe poo pee
     </button>
     
     <button id="unsubscribeButton">
-        Unsubscribe poo
+        Unsubscribe poo pee
     </button>
 
     <button id="subscribePatternButton">
