@@ -10,7 +10,7 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
     this.heartBeat = false;
 
-    this.heartBeatPeriod = 10 * 60 * 1000; // 10 min
+    this.heartBeatPeriod = 5 * 60 * 1000; // 5 min
 
     this.redisSocket.on('connect', () => {
 
