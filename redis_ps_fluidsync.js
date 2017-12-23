@@ -87,28 +87,28 @@ var subscriptionsRegistry =
 };
 
     //
-subscriptionsRegistry.addChannel = (channel, eventChannel) =>
+subscriptionsRegistry.addChannel = (isActive, channel, eventChannel) =>
 {    
     let prefixedChannel = channelPrefix + channel;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToDirectDictionary(prefixedEventChannel, prefixedChannel, 'channels')
+    subscriptionsRegistry.addToDirectDictionary(isActive, prefixedEventChannel, prefixedChannel, 'channels')
 
-    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedChannel, 'channels');
+    subscriptionsRegistry.addToReverseDictionary(isActive, prefixedEventChannel, prefixedChannel, 'channels');
 };
 
     //
-subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
+subscriptionsRegistry.addPattern = (isActive, pattern, eventChannel) =>
 {    
     let prefixedPattern = patternPrefix + pattern;
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToDirectDictionary(prefixedEventChannel, prefixedPattern, 'patterns')
+    subscriptionsRegistry.addToDirectDictionary(isActive, prefixedEventChannel, prefixedPattern, 'patterns')
 
-    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel, prefixedPattern, 'patterns');
+    subscriptionsRegistry.addToReverseDictionary(isActive, prefixedEventChannel, prefixedPattern, 'patterns');
 };
 
-subscriptionsRegistry.addToDirectDictionary = (prefixedEventChannel, prefixedToken, dictionary) =>
+subscriptionsRegistry.addToDirectDictionary = (isActive, prefixedEventChannel, prefixedToken, dictionary) =>
 {
     let tokens = subscriptionsRegistry[dictionary];
 
@@ -119,10 +119,10 @@ subscriptionsRegistry.addToDirectDictionary = (prefixedEventChannel, prefixedTok
         entry = tokens[prefixedToken] = {};
     }
 
-    entry[prefixedEventChannel] = true;        
+    entry[prefixedEventChannel] = isActive;        
 }
 
-subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedToken, dictionary) => 
+subscriptionsRegistry.addToReverseDictionary = (isActive, prefixedEventChannel, prefixedToken, dictionary) => 
 {
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
@@ -141,12 +141,94 @@ subscriptionsRegistry.addToReverseDictionary = (prefixedEventChannel, prefixedTo
 
     if((dictionary !== undefined) && (prefixedToken !== undefined))
     {
-        reverseEntry[dictionary][prefixedToken] = true;    
+        reverseEntry[dictionary][prefixedToken] = isActive;    
     }    
 };
 
-subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => {
+subscriptionsRegistry.removeInactiveChannel = (channel) => {
 
+    let prefixedChannel = channelPrefix + channel;
+
+    let prefixedEventChannels = subscriptionsRegistry.removeInactiveFromDirectDictionary
+                                    (prefixedChannel, 'channels');
+    
+    subscriptionsRegistry.removeInactiveFromReverseDictionary(prefixedEventChannels);
+}
+
+subscriptionsRegistry.removeInactivePattern = (pattern) => {
+
+    let prefixedPattern = patternPrefix + pattern;
+
+    let prefixedEventChannels = subscriptionsRegistry.removeInactiveFromDirectDictionary
+                                    (prefixedPattern, 'patterns');
+                                        
+    subscriptionsRegistry.removeInactiveFromReverseDictionary(prefixedEventChannels);
+}
+
+subscriptionsRegistry.removeInactiveFromDirectDictionary = (prefixedToken, dictionary) => 
+{
+    let inactivePrefixedEventChannels = [];
+
+    let tokens = subscriptionsRegistry[dictionary];
+
+    let entry = tokens[prefixedToken];
+
+    if(entry !== undefined)
+    {
+        let prefixedEventChannelsKeys = Object.keys(entry);
+        
+        for(let i = 0; i < prefixedEventChannelsKeys.length; ++i)
+        {
+            let prefixedEventChannel = prefixedEventChannelsKeys[i];
+
+            if(entry[prefixedEventChannel] === false)
+            {
+                inactivePrefixedEventChannels.push(prefixedEventChannel);    
+
+                delete entry[prefixedEventChannel];
+            }
+        }
+    }
+    
+    return inactivePrefixedEventChannels;
+}
+
+subscriptionsRegistry.removeInactiveFromReverseDictionary = (inactivePrefixedEventChannels, dictionary) => 
+{
+    let reverseRegistry = subscriptionsRegistry.eventChannels;
+
+    for(let i = 0; i < inactivePrefixedEventChannels.length; ++i)
+    {
+        let prefixedEventChannel = inactivePrefixedEventChannels[i];
+
+        let entry = reverseRegistry[prefixedEventChannel];
+
+        if(entry !== undefined)
+        {                        
+            let tokens = entry[dictionary];
+
+            let tokenKeys = Object.keys(tokens);
+
+                // select and remove inactive tokens for this entry
+
+            for(let j = 0; j < tokenKeys.length; ++j)
+            {
+                let tokenKey = tokenKeys[j];
+
+                if(tokens[tokenKey] === false)
+                {
+                    delete tokens[tokenKey];
+                }
+
+            } // end for j
+
+        } // end if(entry !== undefined)
+
+    } // end for i
+}
+
+subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => 
+{
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
     let reverseEntry = reverseRegistry[prefixedEventChannel];
@@ -261,7 +343,7 @@ function subscribe(message, method, command)
 
     for(let i = 0; i < entries.length; ++i)
     {
-        subscriptionsRegistry[method](entries[i], eventChannel);        
+        subscriptionsRegistry[method](true, entries[i], eventChannel);        
     }            
 
     if(!garbageCollectionPresent)
@@ -279,7 +361,7 @@ function subscribe(message, method, command)
     });        
 }
 
-function unsubscribe(message, command)
+function unsubscribe(message, method, command)
 {
     let entries = message.args;
 
@@ -288,25 +370,26 @@ function unsubscribe(message, command)
         return;
     }
         
+    // we do not clean up subscriptions registry for gone subscription right now,    
+    // because we need to inform unsubscribing client on further 'unsubscribe' events;
+    // so, we modify registry entries (channels or patterns) marking them as 'inactive' (but present)
+
+    // we unregister in presumption that Redis takes unsubscriptions correctly
+
+    let eventChannel = message.eventChannel;
+
+    if(typeof eventChannel === 'string')
+    {
+        for(let i = 0; i < entries.length; ++i)
+        {
+            subscriptionsRegistry[method](false, entries[i], eventChannel);        
+        }                        
+    }
+        
     redisSubscribedClient.send_command(command, entries, (err, reply) => {        
 
         sendReply(message, err, reply);        
     });    
-
-    // we do not clean up subscriptions registry for gone subscription right now;    
-    // let time-license garbage collector do it later
-
-    // mark entries (channels or patterns) as 'marked to remove' for eventChannel
-
-    let eventChannel = message.eventChannel;
-
-    if(typeof eventChannel !== 'string')
-    {
-        return;
-    }
-    
-    // mark them as 'false', not 'true'
-    // use add... functions, but with additional parameter
 }
 
 function notifySubscribersOnChannelEvent(channel, message)
@@ -387,7 +470,7 @@ redisSubscribedClient.on('unsubscribe', (channel, count) => {
     notifySubscribersOnChannelEvent(channel, 
         {event: 'unsubscribe', channel: channel, count: count});
 
-    // cleanup eventChannels marked as false in channels dictionary (and check up reverse dictionary)
+    subscriptionsRegistry.removeInactiveChannel(channel);
 });
 
 redisSubscribedClient.on('punsubscribe', (pattern, count) => {
@@ -395,7 +478,7 @@ redisSubscribedClient.on('punsubscribe', (pattern, count) => {
     notifySubscribersOnPatternEvent(pattern, 
         {event: 'punsubscribe', pattern: pattern, count: count});
 
-    // cleanup eventChannels marked as false in patterns dictionary (and check up reverse dictionary)
+    subscriptionsRegistry.removeInactivePattern(pattern);
 });
 
 //-----------------------------
@@ -411,7 +494,7 @@ function updateTimeLicense(message)
 
     let prefixedEventChannel = channelPrefix + eventChannel;
 
-    subscriptionsRegistry.addToReverseDictionary(prefixedEventChannel);
+    subscriptionsRegistry.addToReverseDictionary(true, prefixedEventChannel);
 }
 
 //-----------------------------
@@ -507,10 +590,14 @@ fluidsync.on(proxyChannel, function (data)
         {
             subscribe(message, 'addPattern', command);
         }
-        else if((command === 'UNSUBSCRIBE') || (command === 'PUNSUBSCRIBE'))
+        else if(command === 'UNSUBSCRIBE')
         {
-            unsubscribe(message, command)            
+            unsubscribe(message, 'addChannel', command);            
         }
+        else if(command === 'PUNSUBSCRIBE')
+        {
+            unsubscribe(message, 'addPattern', command);            
+        }        
     }
     else
     {
