@@ -1,38 +1,53 @@
 function redisProxy(communicatorHost, redisProxyName, onConnect)
 {   
-    // TO DO keep track of subscriptions!
-     
-
+    this.subscribeCommands = 
+    {
+        'PSUBSCRIBE': this.registerPatterns.bind(this),
+        'SUBSCRIBE': this.registerChannels.bind(this)
+    };
+    
+    this.unsubscribeCommands = 
+    {
+        'PUNSUBSCRIBE': this.unregisterPatterns.bind(this),
+        'UNSUBSCRIBE': this.unregisterChannels.bind(this)
+    };
+        
     this.redisProxyChannel = 'redis-command-' + redisProxyName;
 
     this.redisSocket = io(communicatorHost);
 
     this.commandId = 1;
 
-    this.registry = {};
+    this.commandsRegistry = {};
+
+    this.subscriptionsRegistry = 
+    {
+        channels: {},
+        patterns: {}
+    };
 
     this.heartBeat = false;
-
-    this.heartBeatPeriod = 5 * 60 * 1000; // 5 min
-
+    
     this.redisSocket.on('connect', () => {
 
         this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
         this.eventChannel = 'redis-event-' + this.redisSocket.id;
         
+        this.resubscribeAll();
+
         this.redisSocket.on(this.feedbackChannel, (message) => {
         
             let payload = message.payload;
     
             let index = 'cmd' + payload.id;
     
-            let f = this.registry[index];
+            let f = this.commandsRegistry[index];
     
             if(f)
             {
                 f(payload.error, payload.reply);
     
-                delete this.registry[index];
+                delete this.commandsRegistry[index];
             }
         });
 
@@ -58,6 +73,20 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
     return this;
 }
 
+//
+
+redisProxy.prototype.heartBeatPeriod = 5 * 1000; // 5 min
+
+redisProxy.prototype.channelPrefix = 'rc#';
+
+redisProxy.prototype.channelPrefixLength = redisProxy.prototype.channelPrefix.length;
+
+redisProxy.prototype.patternPrefix = 'rp#';
+
+redisProxy.prototype.patternPrefixLength = redisProxy.prototype.patternPrefix.length;
+
+//
+
 redisProxy.prototype.pubsubCommands = 
 {
     'PSUBSCRIBE': true,
@@ -66,11 +95,113 @@ redisProxy.prototype.pubsubCommands =
     'UNSUBSCRIBE': true
 };
 
-redisProxy.prototype.subscribeCommands = 
+redisProxy.prototype.registerChannels = function(entries)
 {
-    'PSUBSCRIBE': true,
-    'SUBSCRIBE': true
-};
+    this.registerTokens(entries, this.subscriptionsRegistry.channels, this.channelPrefix);
+}
+
+redisProxy.prototype.registerPatterns = function(entries)
+{
+    this.registerTokens(entries, this.subscriptionsRegistry.patterns, this.patternPrefix);
+}
+
+redisProxy.prototype.unregisterChannels = function(entries)
+{
+    this.unregisterTokens(entries, this.subscriptionsRegistry.channels, this.channelPrefix);
+}
+
+redisProxy.prototype.unregisterPatterns = function(entries)
+{
+    this.unregisterTokens(entries, this.subscriptionsRegistry.patterns, this.patternPrefix);
+}
+
+redisProxy.prototype.registerTokens = function(entries, dictionary, prefix)
+{
+    if(entries === undefined)
+    {
+        return;
+    }
+
+    for(let i = 0; i < entries.length; ++i)
+    {
+        dictionary[prefix + entries[i]] = true;
+    }
+}
+
+redisProxy.prototype.unregisterTokens = function(entries, dictionary, prefix)
+{
+    if((entries === undefined) || (entries.length === 0))
+    {
+        dictionary = {};
+    }
+    else
+    {
+        for(let i = 0; i < entries.length; ++i)
+        {
+            delete dictionary[prefix + entries[i]];
+        }        
+    }
+}
+
+redisProxy.prototype.resubscribeAll = function()
+{
+    let subscriptionsRegistry = this.subscriptionsRegistry;
+    
+    let channels = subscriptionsRegistry.channels;
+    let patterns = subscriptionsRegistry.patterns;
+
+    let prefixedChannelsKeys = Object.keys(channels);
+    let prefixedPatternsKeys = Object.keys(patterns);
+
+    let channelsEntries = [];
+    let patternsEntries = [];
+
+    for(let i = 0; i < prefixedChannelsKeys.length; ++i)
+    {
+        let prefixedChannelKey = prefixedChannelsKeys[i];
+
+        channelsEntries.push(prefixedChannelKey.substr(this.channelPrefixLength));
+    }
+
+    for(let i = 0; i < prefixedPatternsKeys.length; ++i)
+    {
+        let prefixedPatternKey = prefixedPatternsKeys[i];
+
+        patternsEntries.push(prefixedPatternKey.substr(this.patternPrefixLength));
+    }    
+
+    let commandPayload = 
+    { 
+        feedbackChannel: this.feedbackChannel,
+        eventChannel: this.eventChannel
+    };
+
+    if(channelsEntries.length > 0)
+    {
+        this.commandId++;
+    
+        commandPayload.id = this.commandId;
+        commandPayload.command = 'subscribe';
+        commandPayload.args = channelsEntries;
+    
+        this.redisSocket.emit('publish', 
+            {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});        
+    }
+
+    if(patternsEntries.length > 0)
+    {
+        this.commandId++;
+    
+        commandPayload.id = this.commandId;
+        commandPayload.command = 'psubscribe';
+        commandPayload.args = patternsEntries;
+    
+        this.redisSocket.emit('publish', 
+            {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});                
+    }
+
+    this.runHeartBeat();
+}
 
 redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 {
@@ -85,7 +216,7 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 
     if(onResult)
     {
-        this.registry['cmd' + this.commandId] = onResult;
+        this.commandsRegistry['cmd' + this.commandId] = onResult;
     }
 
     let commandPayload = 
@@ -99,24 +230,61 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
     if(this.pubsubCommands[command])
     {
         commandPayload.eventChannel = this.eventChannel;
+    }
 
-        this.checkHeartBeat(command);
+    let subscribeHandler = this.subscribeCommands[command];
+    let unsubscribeHandler = this.unsubscribeCommands[command];
+
+    if(subscribeHandler)
+    {
+        subscribeHandler(commandArgs);
+
+        this.runHeartBeat();
+    }
+    else if(unsubscribeHandler)
+    {
+        unsubscribeHandler(commandArgs);
+
+        this.checkHeartBeat();
     }
 
     this.redisSocket.emit('publish', 
         {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
 }
 
-redisProxy.prototype.checkHeartBeat = function(command)
+redisProxy.prototype.runHeartBeat = function()
 {
-    if(this.subscribeCommands[command])
+    // set active if there are subscriptions
+    
+    let count1 = Object.keys(this.subscriptionsRegistry.channels);
+    let count2 = Object.keys(this.subscriptionsRegistry.patterns);
+
+    if((count1 > 0) || (count2 > 0))
     {
         if(!this.heartBeat)
         {
             this.heartBeatIntervalId = setInterval(this.onHeartBeat.bind(this), this.heartBeatPeriod);
-
+    
             this.heartBeat = true;
-        }            
+        }                
+    }   
+}
+
+redisProxy.prototype.checkHeartBeat = function()
+{
+    // set inactive if no subscriptions
+
+    let count1 = Object.keys(this.subscriptionsRegistry.channels);
+    let count2 = Object.keys(this.subscriptionsRegistry.patterns);
+
+    if((count1 === 0) && (count2 === 0))
+    {
+        if(this.heartBeat)
+        {
+            clearInterval(this.heartBeatIntervalId);
+
+            this.heartBeat = false;    
+        }
     }
 }
 
