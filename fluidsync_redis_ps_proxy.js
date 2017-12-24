@@ -1,5 +1,8 @@
 function redisProxy(communicatorHost, redisProxyName, onConnect)
-{    
+{   
+    // TO DO keep track of subscriptions!
+     
+
     this.redisProxyChannel = 'redis-command-' + redisProxyName;
 
     this.redisSocket = io(communicatorHost);
