@@ -1,0 +1,98 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <!--<script src="https://fluidsync2.herokuapp.com/socket.io/socket.io.js"></script>-->    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js"></script>
+    <script src="fluidsync_redis_ps_proxy.js"></script>
+
+    <script>
+                
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        $(() => {
+            function onConnect(redis)
+            {
+                print('FluidSync2 Redis connection: ' + redis.redisSocket.id);    
+                redis.onEvent = (message) => {
+
+                    console.log(message);
+
+                    print('event: ' + message.event);    
+                };
+            }
+
+            let redis = new redisProxy('https://fluidsync2.herokuapp.com', 'unique_instance_name', onConnect);
+
+            let sendButton = $('#sendButton');
+            let subscribeButton = $('#subscribeButton');
+            let unsubscribeButton = $('#unsubscribeButton');
+            let subscribePatternButton = $('#subscribePatternButton');
+            let unsubscribePatternButton = $('#unsubscribePatternButton');
+
+            sendButton.click(() => 
+            {
+                redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {
+                    //console.log(err);
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });
+            });      
+            
+            subscribeButton.click(() => {
+                redis.sendCommand('subscribe', ['poo', 'pee'], (err, reply) => {
+                    //console.log(reply);
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });                    
+            });
+                        
+            unsubscribeButton.click(() => {
+                redis.sendCommand('unsubscribe', ['pee', 'poo'], (err, reply) => {
+                    //console.log(reply);
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });                                    
+            });
+
+            subscribePatternButton.click(() => {
+                redis.sendCommand('psubscribe', ['q*'], (err, reply) => {
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });                    
+            });
+                        
+            unsubscribePatternButton.click(() => {
+                redis.sendCommand('punsubscribe', ['q*'], (err, reply) => {
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });                                    
+            });            
+        });
+        
+    </script>
+<body> 
+    <button id="sendButton">
+        Set foo bar
+    </button>   
+
+    <button id="subscribeButton">
+        Subscribe poo pee
+    </button>
+    
+    <button id="unsubscribeButton">
+        Unsubscribe pee poo
+    </button>
+
+    <button id="subscribePatternButton">
+        Subscribe q*
+    </button>
+    
+    <button id="unsubscribePatternButton">
+        Unsubscribe q*
+    </button>
+    
+</body>
+</html>
