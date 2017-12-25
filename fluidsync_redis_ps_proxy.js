@@ -18,12 +18,12 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
     this.commandId = 1;
 
-    this.commandsRegistry = {};
+    this.commandsRegistry = new Map();
 
     this.subscriptionsRegistry = 
     {
-        channels: {},
-        patterns: {}
+        channels: new Map(),
+        patterns: new Map()
     };
 
     this.heartBeat = false;
@@ -32,22 +32,20 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
         this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
         this.eventChannel = 'redis-event-' + this.redisSocket.id;
-        
-        this.resubscribeAll();
-
+                
         this.redisSocket.on(this.feedbackChannel, (message) => {
         
             let payload = message.payload;
     
-            let index = 'cmd' + payload.id;
+            let id = payload.id;
+
+            let handler = this.commandsRegistry.get(id);
     
-            let f = this.commandsRegistry[index];
-    
-            if(f)
+            if(handler)
             {
-                f(payload.error, payload.reply);
+                handler(payload.error, payload.reply);
     
-                delete this.commandsRegistry[index];
+                this.commandsRegistry.delete(id)                
             }
         });
 
@@ -64,6 +62,8 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
         this.redisSocket.emit('subscribe', this.feedbackChannel);
         this.redisSocket.emit('subscribe', this.eventChannel);
 
+        this.resubscribeAll();
+
         if(onConnect)
         {
             onConnect(this);
@@ -77,14 +77,6 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
 redisProxy.prototype.heartBeatPeriod = 5 * 1000; // 5 min
 
-redisProxy.prototype.channelPrefix = 'rc#';
-
-redisProxy.prototype.channelPrefixLength = redisProxy.prototype.channelPrefix.length;
-
-redisProxy.prototype.patternPrefix = 'rp#';
-
-redisProxy.prototype.patternPrefixLength = redisProxy.prototype.patternPrefix.length;
-
 //
 
 redisProxy.prototype.pubsubCommands = 
@@ -97,78 +89,101 @@ redisProxy.prototype.pubsubCommands =
 
 redisProxy.prototype.registerChannels = function(entries)
 {
-    this.registerTokens(entries, this.subscriptionsRegistry.channels, this.channelPrefix);
+    return this.registerTokens(entries, this.subscriptionsRegistry.channels);
 }
 
 redisProxy.prototype.registerPatterns = function(entries)
 {
-    this.registerTokens(entries, this.subscriptionsRegistry.patterns, this.patternPrefix);
+    return this.registerTokens(entries, this.subscriptionsRegistry.patterns);
 }
 
 redisProxy.prototype.unregisterChannels = function(entries)
 {
-    this.unregisterTokens(entries, this.subscriptionsRegistry.channels, this.channelPrefix);
+    return this.unregisterTokens(entries, this.subscriptionsRegistry.channels);
 }
 
 redisProxy.prototype.unregisterPatterns = function(entries)
 {
-    this.unregisterTokens(entries, this.subscriptionsRegistry.patterns, this.patternPrefix);
+    return this.unregisterTokens(entries, this.subscriptionsRegistry.patterns);
 }
 
-redisProxy.prototype.registerTokens = function(entries, dictionary, prefix)
+redisProxy.prototype.registerTokens = function(entries, map)
 {
     if(entries === undefined)
     {
-        return;
+        return entries;
     }
+
+    let stableEntries = [];
 
     for(let i = 0; i < entries.length; ++i)
     {
-        dictionary[prefix + entries[i]] = true;
+        let token = entries[i];
+
+        if(typeof token === 'string')
+        {
+            if(token.length > 0)
+            {
+                map.set(token, true);
+
+                stableEntries.push(token);
+            }            
+        }
     }
+
+    return stableEntries;
 }
 
-redisProxy.prototype.unregisterTokens = function(entries, dictionary, prefix)
+redisProxy.prototype.unregisterTokens = function(entries, map)
 {
+    let stableEntries = [];
+
     if((entries === undefined) || (entries.length === 0))
     {
-        dictionary = {};
+        // unsubscribe from all channels
+
+        map.forEach((v, key) => {
+            stableEntries.push(key);
+        });
+
+        map.clear();
     }
     else
     {
         for(let i = 0; i < entries.length; ++i)
         {
-            delete dictionary[prefix + entries[i]];
+            let token = entries[i];
+
+            if(typeof token === 'string')
+            {
+                if(token.length > 0)
+                {
+                    map.delete(token);
+
+                    stableEntries.push(token);        
+                }    
+            }
         }        
     }
+
+    return stableEntries;
 }
 
 redisProxy.prototype.resubscribeAll = function()
 {
-    let subscriptionsRegistry = this.subscriptionsRegistry;
-    
-    let channels = subscriptionsRegistry.channels;
-    let patterns = subscriptionsRegistry.patterns;
-
-    let prefixedChannelsKeys = Object.keys(channels);
-    let prefixedPatternsKeys = Object.keys(patterns);
+    let channels = this.subscriptionsRegistry.channels;
+    let patterns = this.subscriptionsRegistry.patterns;
 
     let channelsEntries = [];
     let patternsEntries = [];
 
-    for(let i = 0; i < prefixedChannelsKeys.length; ++i)
-    {
-        let prefixedChannelKey = prefixedChannelsKeys[i];
+    channels.forEach((v, key) => {
+        channelsEntries.push(key);
+    });
 
-        channelsEntries.push(prefixedChannelKey.substr(this.channelPrefixLength));
-    }
-
-    for(let i = 0; i < prefixedPatternsKeys.length; ++i)
-    {
-        let prefixedPatternKey = prefixedPatternsKeys[i];
-
-        patternsEntries.push(prefixedPatternKey.substr(this.patternPrefixLength));
-    }    
+    patterns.forEach((v, key) => {
+        patternsEntries.push(key);
+    });
 
     let commandPayload = 
     { 
@@ -210,19 +225,21 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
         return;
     }
 
-    let command = commandName.toUpperCase();
+    ++this.commandId;
 
-    this.commandId++;
+    let id = this.commandId;
 
     if(onResult)
     {
-        this.commandsRegistry['cmd' + this.commandId] = onResult;
+        this.commandsRegistry.set(id, onResult);
     }
 
+    let command = commandName.toUpperCase();
+    
     let commandPayload = 
     {
         feedbackChannel: this.feedbackChannel, 
-        id: this.commandId, 
+        id: id, 
         command: command, 
         args: commandArgs
     };
@@ -237,13 +254,13 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 
     if(subscribeHandler)
     {
-        subscribeHandler(commandArgs);
+        commandPayload.args = subscribeHandler(commandArgs);
 
         this.runHeartBeat();
     }
     else if(unsubscribeHandler)
     {
-        unsubscribeHandler(commandArgs);
+        commandPayload.args = unsubscribeHandler(commandArgs);
 
         this.checkHeartBeat();
     }
@@ -256,10 +273,7 @@ redisProxy.prototype.runHeartBeat = function()
 {
     // set active if there are subscriptions
     
-    let count1 = Object.keys(this.subscriptionsRegistry.channels);
-    let count2 = Object.keys(this.subscriptionsRegistry.patterns);
-
-    if((count1 > 0) || (count2 > 0))
+    if((this.subscriptionsRegistry.channels.size > 0) || (this.subscriptionsRegistry.patterns.size > 0))
     {
         if(!this.heartBeat)
         {
@@ -274,10 +288,7 @@ redisProxy.prototype.checkHeartBeat = function()
 {
     // set inactive if no subscriptions
 
-    let count1 = Object.keys(this.subscriptionsRegistry.channels);
-    let count2 = Object.keys(this.subscriptionsRegistry.patterns);
-
-    if((count1 === 0) && (count2 === 0))
+    if((this.subscriptionsRegistry.channels.size === 0) && (this.subscriptionsRegistry.patterns.size === 0))
     {
         if(this.heartBeat)
         {
