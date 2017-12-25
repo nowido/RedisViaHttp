@@ -111,7 +111,7 @@ redisProxy.prototype.registerTokens = function(entries, map)
 {
     let stableEntries = [];
     
-    if(entries !== undefined)
+    if((entries !== undefined) && (entries.length > 0))
     {
         entries.forEach(token => {
 
@@ -131,17 +131,7 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
 {
     let stableEntries = [];
 
-    if((entries === undefined) || (entries.length === 0))
-    {
-        // unsubscribe from all channels|patterns
-
-        map.forEach((v, key) => {
-            stableEntries.push(key);
-        });
-
-        map.clear();
-    }
-    else
+    if((entries !== undefined) && (entries.length > 0))
     {
         entries.forEach(token => {
 
@@ -151,7 +141,17 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
 
                 stableEntries.push(token);        
             }
+        });        
+    }
+    else
+    {
+        // unsubscribe from all channels|patterns
+
+        map.forEach((v, key) => {
+            stableEntries.push(key);
         });
+
+        map.clear();
     }
 
     return stableEntries;
@@ -236,7 +236,7 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 
         if(stableEntries.length === 0)
         {
-            // cancel command
+            // cancel subscription
 
             return;
         }
@@ -251,7 +251,7 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 
         if(stableEntries.length === 0)
         {
-            // cancel command
+            // cancel unsubscription
 
             return;
         }
