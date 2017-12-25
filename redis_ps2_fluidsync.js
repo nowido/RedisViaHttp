@@ -42,44 +42,30 @@ const pubsubCommands =
 
 //-----------------------------
 
-const channelPrefix = 'rc#';
-const patternPrefix = 'rp#';
-
-const channelPrefixLength = channelPrefix.length;
-const patternPrefixLength = patternPrefix.length;
-
-const TOUCHED    = 7;
-const SUBSCRIBED = 3;
-
 var subscriptionsRegistry = 
 {
-        // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
-        // this object is keyed with 'some channels' (prefixed)
-        // and contains objects keyed with 'event channels' (prefixed)
-    channels: { 
-        // {prefixed eventChannels as keys}      
-    },
+        // Map to register remote listeners ('event channels') subscribed for 'some channel'
+        // Map is keyed with 'some channels' 
+        // and contains Maps keyed with 'event channels'
+    channels:  new Map(),
 
-        // dictionary to register remote listeners ('event channels') subscribed for 'some*pattern'
-        // this object is keyed with 'some*patterns' (prefixed) 
-        // and contains objects keyed with 'event channels' (prefixed)
-    patterns: {        
-        // {prefixed eventChannels as keys}         
-    },
+        // Map to register remote listeners ('event channels') subscribed for 'some*pattern'
+        // Map is keyed with 'some*patterns' 
+        // and contains Maps keyed with 'event channels'
+    patterns: new Map(),
 
-        // reverse dictionary to speed up registry management
-        // this object is keyed with 'event channels' (prefixed)
-        // and contains object keyed with 'some channels' and 'some*patterns',
-        // so we can remove client subscriptions without iterating all over direct dictionaries
-    eventChannels: {
+        // reverse Map to speed up registry management
+        // reverse Map is keyed with 'event channels'
+        // and contains Object with two Maps: keyed with 'some channels', and keyed with 'some*patterns',
+        // so we can remove client subscriptions without iterating all over direct maps
+    eventChannels: new Map()
         /*
         {
             timestamp: ...,
-            channels: {},
-            patterns: {}    
+            channels: new Map(),
+            patterns: new Map()    
         }
         */
-    }    
 };
 
     //
@@ -205,66 +191,39 @@ subscriptionsRegistry.removeFromReverseDictionary = (prefixedEventChannel, prefi
     }        
 };
 
-subscriptionsRegistry.removeChannelsSubscription = (prefixedEventChannel) =>
-{
-        // unprefixed channels to use with Redis unsubscription
-    let channelsKeys = undefined;
+subscriptionsRegistry.removeChannelsSubscription = (eventChannel) =>
+{        
+    let channels = undefined;
     
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
+    let reverseEntry = subscriptionsRegistry.eventChannels.get(eventChannel);
 
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-    if(reverseEntry === undefined)
+    if(reverseEntry !== undefined)
     {
-        return channelsKeys;
-    }
+        let channelsRegistry = subscriptionsRegistry.channels;
 
-    let prefixedChannelsKeys = undefined;
-
-    if(reverseEntry.channels !== undefined)
-    {
-        prefixedChannelsKeys = Object.keys(reverseEntry.channels);
-    }
+        channels = [];
     
-    if(prefixedChannelsKeys)
-    {
-        channelsKeys = [];
-
-        let channels = subscriptionsRegistry.channels;
-
-        for(let i = 0; i < prefixedChannelsKeys.length; ++i)
-        {
-            let prefixedChannel = prefixedChannelsKeys[i];
-            
-            let subscribers = channels[prefixedChannel];
-
-            if(subscribers !== undefined)
+        reverseEntry.channels.forEach((v, channel) => {
+    
+            let directEntry = channelsRegistry.get(channel);
+    
+            if(directEntry !== undefined)
             {
-                delete subscribers[prefixedEventChannel];
-            }            
-
-            if(Object.keys(subscribers).length === 0)
-            {
-                channelsKeys.push(prefixedChannel.substr(channelPrefixLength));
-
-                delete channels[prefixedChannel];
+                directEntry.delete(eventChannel);
+    
+                if(directEntry.size === 0)
+                {
+                    channelsRegistry.delete(channel);
+                }
             }
-        }
-    }
+            
+            channels.push(channel);
+        });
     
-    let needRemoveReverseEntry = false;
+        reverseEntry.channels.clear();            
+    }
 
-    if(reverseEntry.patterns !== undefined)
-    {
-        needRemoveReverseEntry = (Object.keys(reverseEntry.patterns).length === 0);
-    }
-    
-    if(needRemoveReverseEntry)
-    {
-        delete reverseRegistry[prefixedEventChannel];
-    }
-    
-    return channelsKeys;
+    return channels;
 }
 
 subscriptionsRegistry.removePatternsSubscription = (prefixedEventChannel) =>
@@ -329,12 +288,12 @@ subscriptionsRegistry.removePatternsSubscription = (prefixedEventChannel) =>
     return patternsKeys;    
 }
 
-subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => 
-{
+subscriptionsRegistry.removeSubscription = (eventChannel) => 
+{    
     let entries = {};
 
-    let channels = subscriptionsRegistry.removeChannelsSubscription(prefixedEventChannel);
-    let patterns = subscriptionsRegistry.removePatternsSubscription(prefixedEventChannel);
+    let channels = subscriptionsRegistry.removeChannelsSubscription(eventChannel);
+    let patterns = subscriptionsRegistry.removePatternsSubscription(eventChannel);
 
     if(channels !== undefined)
     {
@@ -638,14 +597,15 @@ function updateTimeLicense(message)
 {
     let eventChannel = message.eventChannel;
 
-    if(typeof eventChannel !== 'string')
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {
-        return;
+        let entry = subscriptionsRegistry.eventChannels.get(eventChannel);
+
+        if(entry !== undefined)
+        {
+            entry.timestamp = Date.now();
+        }
     }
-
-    let prefixedEventChannel = channelPrefix + eventChannel;
-
-    subscriptionsRegistry.addToReverseDictionary(TOUCHED, prefixedEventChannel);
 }
 
 //-----------------------------
@@ -659,52 +619,60 @@ var garbageCollectionIntervalId;
 
 function startGarbageCollectorIfNeeded()
 {
-    if(!garbageCollectionPresent)
+    if(subscriptionsRegistry.eventChannels.size > 0)
     {
-        garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
-    
-        garbageCollectionPresent = true;
-    
-        console.log('garbage collector is now on');        
-    }    
+        if(!garbageCollectionPresent)
+        {
+            garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
+        
+            garbageCollectionPresent = true;
+        
+            console.log('garbage collector is now on');        
+        }        
+    }
 }
 
 function stopGarbageCollectorIfNeeded()
 {
-    if(Object.keys(subscriptionsRegistry.eventChannels).length === 0)
+    if(subscriptionsRegistry.eventChannels.size === 0)
     {
-        clearInterval(garbageCollectionIntervalId);
+        if(garbageCollectionPresent)
+        {
+            clearInterval(garbageCollectionIntervalId);
 
-        garbageCollectionPresent = false;
-
-        console.log('garbage collector is now off');
-    }    
+            garbageCollectionPresent = false;
+    
+            console.log('garbage collector is now off');    
+        }
+    }
 }
 
 function onGarbageCollectorTick()
-{
+{    
+    let eventChannelsToRemove = [];
+
     let timeNow = Date.now();
 
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
+    subscriptionsRegistry.eventChannels.forEach((entry, eventChannel) => {
 
-    let prefixedEventChannels = Object.keys(reverseRegistry);
+        let age = timeNow - entry.timestamp;
 
-    for(let i = 0; i < prefixedEventChannels.length; ++i)
-    {
-        let prefixedEventChannel = prefixedEventChannels[i];
-
-        let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-        let age = timeNow - reverseEntry.timestamp;
-
-        console.log(prefixedEventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
+        console.log(eventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
 
         if(age >= TIME_LICENSE_PERIOD)
         {
-            let entries = subscriptionsRegistry.removeSubscription(prefixedEventChannel);
+            eventChannelsToRemove.push(eventChannel);
+        }        
+    });
 
-            removeSubscriptionsFromRedis(entries);
-        }
+    if(eventChannelsToRemove.length > 0)
+    {
+        eventChannelsToRemove.forEach(eventChannel => {
+            
+            let entries = subscriptionsRegistry.removeSubscription(eventChannel);
+
+            removeSubscriptionsFromRedis(entries);    
+        });        
     }
 
     stopGarbageCollectorIfNeeded();
@@ -745,15 +713,15 @@ fluidsync.on(proxyChannel, function (data)
 
     command = command.toUpperCase();
 
-    let pubsubOperation = pubsubCommands[command];
+    let pubsubHandler = pubsubCommands[command];
 
     if(command === 'HEARTBEAT')
     {
         updateTimeLicense(message);
     }
-    else if(pubsubOperation !== undefined)
+    else if(pubsubHandler !== undefined)
     {        
-        pubsubOperation(message, command);
+        pubsubHandler(message, command);
     }
     else
     {
@@ -770,13 +738,10 @@ function sendReply(message, err, reply)
 {
     let feedbackChannel = message.feedbackChannel;
 
-    if(typeof feedbackChannel !== 'string')
+    if((typeof feedbackChannel === 'string') && (feedbackChannel.length > 0))
     {
-        return;
+        fluidsync.emit('publish', {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
     }
-
-    fluidsync.emit('publish', 
-        {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
 }
 
 //-----------------------------
