@@ -51,11 +51,9 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
         this.redisSocket.on(this.eventChannel, (message) => {
         
-            let payload = message.payload;
-    
             if(this.onEvent)
             {
-                this.onEvent(payload);
+                this.onEvent(message.payload);
             }
         });
         
@@ -166,11 +164,13 @@ redisProxy.prototype.resubscribeAll = function()
     let channelsEntries = [];
     let patternsEntries = [];
 
-    channels.forEach((v, key) => {
+    channels.forEach(key => {
+
         channelsEntries.push(key);
     });
 
-    patterns.forEach((v, key) => {
+    patterns.forEach(key => {
+
         patternsEntries.push(key);
     });
 
@@ -209,72 +209,73 @@ redisProxy.prototype.resubscribeAll = function()
 
 redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 {
-    if(typeof commandName !== 'string')
+    if((typeof commandName === 'string') && (commandName.length > 0))
     {
-        return;
-    }
-
-    let command = commandName.toUpperCase();
+        let command = commandName.toUpperCase();
     
-    let commandPayload = 
-    {
-        feedbackChannel: this.feedbackChannel,         
-        command: command, 
-        args: commandArgs
-    };
-
-    if(this.pubsubCommands[command])
-    {
-        commandPayload.eventChannel = this.eventChannel;
-    }
-
-    let subscribeHandler = this.subscribeCommands[command];
-    let unsubscribeHandler = this.unsubscribeCommands[command];
-
-    if(subscribeHandler)
-    {
-        let stableEntries = subscribeHandler(commandArgs);
-
-        if(stableEntries.length === 0)
+        let commandPayload = 
         {
-            // cancel subscription
-
-            return;
-        }
-
-        commandPayload.args = stableEntries;
-
-        this.runHeartBeat();
-    }
-    else if(unsubscribeHandler)
-    {
-        let stableEntries = unsubscribeHandler(commandArgs);
-
-        if(stableEntries.length === 0)
-        {
-            // cancel unsubscription
-
-            return;
-        }
-
-        commandPayload.args = stableEntries;
-
-        this.checkHeartBeat();
-    }
-
-    ++this.commandId;
-
-    let id = this.commandId;
-
-    commandPayload.id = id;
-
-    if(onResult)
-    {
-        this.commandsRegistry.set(id, onResult);
-    }
+            feedbackChannel: this.feedbackChannel,         
+            command: command
+        };
     
-    this.redisSocket.emit('publish', 
-        {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+        if(this.pubsubCommands[command])
+        {
+            commandPayload.eventChannel = this.eventChannel;
+        }
+    
+        let subscribeHandler = this.subscribeCommands[command];
+        let unsubscribeHandler = this.unsubscribeCommands[command];
+    
+        if(subscribeHandler)
+        {
+            let stableEntries = subscribeHandler(commandArgs);
+    
+            if(stableEntries.length === 0)
+            {
+                // cancel subscription
+    
+                return;
+            }
+    
+            commandPayload.args = stableEntries;
+    
+            this.runHeartBeat();
+        }
+        else if(unsubscribeHandler)
+        {
+            let stableEntries = unsubscribeHandler(commandArgs);
+    
+            if(stableEntries.length === 0)
+            {
+                // cancel unsubscription
+    
+                return;
+            }
+    
+            commandPayload.args = stableEntries;
+    
+            this.checkHeartBeat();
+        }
+        else
+        {
+            commandPayload.args = commandArgs;    
+        }        
+    
+        ++this.commandId;
+    
+        let id = this.commandId;
+    
+        commandPayload.id = id;
+    
+        if(onResult)
+        {
+            this.commandsRegistry.set(id, onResult);
+        }
+        
+        this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+    
+    } // end if command is non-empty string
 }
 
 redisProxy.prototype.runHeartBeat = function()
@@ -315,6 +316,5 @@ redisProxy.prototype.onHeartBeat = function()
         command: 'heartbeat'
     };
     
-    this.redisSocket.emit('publish', 
-        {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+    this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
 }
