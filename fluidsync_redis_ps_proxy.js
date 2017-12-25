@@ -22,8 +22,8 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
     this.subscriptionsRegistry = 
     {
-        channels: new Map(),
-        patterns: new Map()
+        channels: new Set(),
+        patterns: new Set()
     };
 
     this.heartBeat = false;
@@ -107,7 +107,7 @@ redisProxy.prototype.unregisterPatterns = function(entries)
     return this.unregisterTokens(entries, this.subscriptionsRegistry.patterns);
 }
 
-redisProxy.prototype.registerTokens = function(entries, map)
+redisProxy.prototype.registerTokens = function(entries, registry)
 {
     let stableEntries = [];
     
@@ -117,7 +117,7 @@ redisProxy.prototype.registerTokens = function(entries, map)
 
             if((typeof token === 'string') && (token.length > 0))
             {
-                map.set(token, true);
+                registry.add(token);
     
                 stableEntries.push(token);
             }
@@ -127,7 +127,7 @@ redisProxy.prototype.registerTokens = function(entries, map)
     return stableEntries;
 }
 
-redisProxy.prototype.unregisterTokens = function(entries, map)
+redisProxy.prototype.unregisterTokens = function(entries, registry)
 {
     let stableEntries = [];
 
@@ -137,7 +137,7 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
 
             if((typeof token === 'string') && (token.length > 0))
             {
-                map.delete(token);
+                registry.delete(token);
 
                 stableEntries.push(token);        
             }
@@ -147,11 +147,12 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
     {
         // unsubscribe from all channels|patterns
 
-        map.forEach((v, key) => {
-            stableEntries.push(key);
+        registry.forEach(token => {
+            
+            stableEntries.push(token);
         });
 
-        map.clear();
+        registry.clear();
     }
 
     return stableEntries;
