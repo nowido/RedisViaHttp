@@ -109,26 +109,19 @@ redisProxy.prototype.unregisterPatterns = function(entries)
 
 redisProxy.prototype.registerTokens = function(entries, map)
 {
-    if(entries === undefined)
-    {
-        return entries;
-    }
-
     let stableEntries = [];
-
-    for(let i = 0; i < entries.length; ++i)
+    
+    if(entries !== undefined)
     {
-        let token = entries[i];
+        entries.forEach(token => {
 
-        if(typeof token === 'string')
-        {
-            if(token.length > 0)
+            if((typeof token === 'string') && (token.length > 0))
             {
                 map.set(token, true);
-
+    
                 stableEntries.push(token);
-            }            
-        }
+            }
+        });
     }
 
     return stableEntries;
@@ -140,7 +133,7 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
 
     if((entries === undefined) || (entries.length === 0))
     {
-        // unsubscribe from all channels
+        // unsubscribe from all channels|patterns
 
         map.forEach((v, key) => {
             stableEntries.push(key);
@@ -150,20 +143,15 @@ redisProxy.prototype.unregisterTokens = function(entries, map)
     }
     else
     {
-        for(let i = 0; i < entries.length; ++i)
-        {
-            let token = entries[i];
+        entries.forEach(token => {
 
-            if(typeof token === 'string')
+            if((typeof token === 'string') && (token.length > 0))
             {
-                if(token.length > 0)
-                {
-                    map.delete(token);
+                map.delete(token);
 
-                    stableEntries.push(token);        
-                }    
+                stableEntries.push(token);        
             }
-        }        
+        });
     }
 
     return stableEntries;
@@ -225,21 +213,11 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
         return;
     }
 
-    ++this.commandId;
-
-    let id = this.commandId;
-
-    if(onResult)
-    {
-        this.commandsRegistry.set(id, onResult);
-    }
-
     let command = commandName.toUpperCase();
     
     let commandPayload = 
     {
-        feedbackChannel: this.feedbackChannel, 
-        id: id, 
+        feedbackChannel: this.feedbackChannel,         
         command: command, 
         args: commandArgs
     };
@@ -254,17 +232,46 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 
     if(subscribeHandler)
     {
-        commandPayload.args = subscribeHandler(commandArgs);
+        let stableEntries = subscribeHandler(commandArgs);
+
+        if(stableEntries.length === 0)
+        {
+            // cancel command
+
+            return;
+        }
+
+        commandPayload.args = stableEntries;
 
         this.runHeartBeat();
     }
     else if(unsubscribeHandler)
     {
-        commandPayload.args = unsubscribeHandler(commandArgs);
+        let stableEntries = unsubscribeHandler(commandArgs);
+
+        if(stableEntries.length === 0)
+        {
+            // cancel command
+
+            return;
+        }
+
+        commandPayload.args = stableEntries;
 
         this.checkHeartBeat();
     }
 
+    ++this.commandId;
+
+    let id = this.commandId;
+
+    commandPayload.id = id;
+
+    if(onResult)
+    {
+        this.commandsRegistry.set(id, onResult);
+    }
+    
     this.redisSocket.emit('publish', 
         {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
 }
