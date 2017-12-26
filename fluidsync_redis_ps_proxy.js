@@ -73,7 +73,7 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
 
 //
 
-redisProxy.prototype.heartBeatPeriod = 5 * 1000; // 5 min
+redisProxy.prototype.heartBeatPeriod = 5 * 60 * 1000; // 5 min
 
 //
 
