@@ -1,5 +1,5 @@
     // Redis client
-const redis = require('redis');
+    const redis = require('redis');
 
     // to do use config or commandline arg to specify Redis server attributes
 const redisHost = '127.0.0.1';
@@ -42,299 +42,199 @@ const pubsubCommands =
 
 //-----------------------------
 
-const channelPrefix = 'rc#';
-const patternPrefix = 'rp#';
-
-const channelPrefixLength = channelPrefix.length;
-const patternPrefixLength = patternPrefix.length;
-
-const TOUCHED    = 7;
-const SUBSCRIBED = 3;
-
 var subscriptionsRegistry = 
 {
-        // dictionary to register remote listeners ('event channels') subscribed for 'some channel'
-        // this object is keyed with 'some channels' (prefixed)
-        // and contains objects keyed with 'event channels' (prefixed)
-    channels: { 
-        // {prefixed eventChannels as keys}      
-    },
+        // Map to register remote listeners ('event channels') subscribed for 'some channel'
+        // Map is keyed with 'some channels' 
+        
+    channels:  new Map(), // contains Sets of 'event channels'
 
-        // dictionary to register remote listeners ('event channels') subscribed for 'some*pattern'
-        // this object is keyed with 'some*patterns' (prefixed) 
-        // and contains objects keyed with 'event channels' (prefixed)
-    patterns: {        
-        // {prefixed eventChannels as keys}         
-    },
+        // Map to register remote listeners ('event channels') subscribed for 'some*pattern'
+        // Map is keyed with 'some*patterns' 
+        
+    patterns: new Map(), // contains Sets of 'event channels'
 
-        // reverse dictionary to speed up registry management
-        // this object is keyed with 'event channels' (prefixed)
-        // and contains object keyed with 'some channels' and 'some*patterns',
-        // so we can remove client subscriptions without iterating all over direct dictionaries
-    eventChannels: {
+        // reverse Map to speed up registry management
+        // reverse Map is keyed with 'event channels'
+        // and contains Object with two Sets: 'some channels', and 'some*patterns',
+        // so we can remove client subscriptions without iterating all over direct maps
+
+    eventChannels: new Map()
         /*
         {
             timestamp: ...,
-            channels: {},
-            patterns: {}    
+            channels: new Set(),
+            patterns: new Set()    
         }
         */
-    }    
 };
 
     //
-subscriptionsRegistry.addChannel = (entryMark, channel, eventChannel) =>
+subscriptionsRegistry.addChannel = (channel, eventChannel) =>
 {    
-    let prefixedChannel = channelPrefix + channel;
-    let prefixedEventChannel = channelPrefix + eventChannel;
+    subscriptionsRegistry.addToReverseDictionary(eventChannel, channel, 'channels');
 
-    let directEntriesCount = subscriptionsRegistry.addToDirectDictionary
-                                (entryMark, prefixedEventChannel, prefixedChannel, 'channels')
-
-    subscriptionsRegistry.addToReverseDictionary(entryMark, prefixedEventChannel, prefixedChannel, 'channels');
-
-    return directEntriesCount;
+    return subscriptionsRegistry.addToDirectDictionary(channel, eventChannel, 'channels');        
 };
 
     //
-subscriptionsRegistry.addPattern = (entryMark, pattern, eventChannel) =>
-{    
-    let prefixedPattern = patternPrefix + pattern;
-    let prefixedEventChannel = channelPrefix + eventChannel;
-
-    let directEntriesCount = subscriptionsRegistry.addToDirectDictionary
-                                (entryMark, prefixedEventChannel, prefixedPattern, 'patterns')
-
-    subscriptionsRegistry.addToReverseDictionary(entryMark, prefixedEventChannel, prefixedPattern, 'patterns');
-
-    return directEntriesCount;
-};
-
-subscriptionsRegistry.addToDirectDictionary = (entryMark, prefixedEventChannel, prefixedToken, dictionary) =>
+subscriptionsRegistry.addPattern = (pattern, eventChannel) =>
 {
-    let tokens = subscriptionsRegistry[dictionary];
+    subscriptionsRegistry.addToReverseDictionary(eventChannel, pattern, 'patterns');
 
-    let entry = tokens[prefixedToken];
+    return subscriptionsRegistry.addToDirectDictionary(pattern, eventChannel, 'patterns'); 
+};
 
-    if(entry === undefined)
-    {
-        entry = tokens[prefixedToken] = {};
-    }
+subscriptionsRegistry.addToDirectDictionary = (token, eventChannel, dictionary) =>
+{
+    let tokensMap = subscriptionsRegistry[dictionary];
 
-    entry[prefixedEventChannel] = entryMark;    
+    let eventChannelsForToken = tokensMap.get(token);
     
-    return Object.keys(entry).length;
+    if(eventChannelsForToken === undefined)
+    {
+        tokensMap.set(token, new Set([eventChannel]));    
+        
+        return 1;
+    }
+    else
+    {
+        eventChannelsForToken.add(eventChannel);    
+
+        return eventChannelsForToken.size;
+    }        
 }
 
-subscriptionsRegistry.addToReverseDictionary = (entryMark, prefixedEventChannel, prefixedToken, dictionary) => 
+subscriptionsRegistry.addToReverseDictionary = (eventChannel, token, dictionary) => 
 {
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
+    let reverseEntry = reverseRegistry.get(eventChannel);
 
     if(reverseEntry === undefined)
     {
-        reverseEntry = reverseRegistry[prefixedEventChannel] = 
+        reverseEntry = {};
+
+        reverseEntry[dictionary] = new Set([token]);
+
+        if(reverseEntry.channels === undefined)
         {
-            channels: {},
-            patterns: {}                
-        };
+            reverseEntry.channels = new Set();
+        }
+
+        if(reverseEntry.patterns === undefined)
+        {
+            reverseEntry.patterns = new Set();
+        }
+
+        reverseRegistry.set(eventChannel, reverseEntry);
     }    
+    else
+    {
+        reverseEntry[dictionary].add(token);    
+    }
 
     reverseEntry.timestamp = Date.now();
-
-    if((dictionary !== undefined) && (prefixedToken !== undefined))
-    {
-        reverseEntry[dictionary][prefixedToken] = entryMark;    
-    }    
 };
 
 subscriptionsRegistry.removeChannel = (channel, eventChannel) =>
 {    
-    let prefixedChannel = channelPrefix + channel;
-    let prefixedEventChannel = channelPrefix + eventChannel;
+    subscriptionsRegistry.removeFromReverseDictionary(eventChannel, channel, 'channels');
 
-    let directEntriesCount = subscriptionsRegistry.removeFromDirectDictionary
-                                (prefixedEventChannel, prefixedChannel, 'channels')
-
-    subscriptionsRegistry.removeFromReverseDictionary(prefixedEventChannel, prefixedChannel, 'channels');
-
-    return directEntriesCount;
+    return subscriptionsRegistry.removeFromDirectDictionary(channel, eventChannel, 'channels');
 };
 
 subscriptionsRegistry.removePattern = (pattern, eventChannel) =>
-{    
-    let prefixedPattern = patternPrefix + pattern;
-    let prefixedEventChannel = channelPrefix + eventChannel;
+{
+    subscriptionsRegistry.removeFromReverseDictionary(eventChannel, pattern, 'patterns');
 
-    let directEntriesCount = subscriptionsRegistry.removeFromDirectDictionary
-                                (prefixedEventChannel, prefixedPattern, 'patterns')
-
-    subscriptionsRegistry.removeFromReverseDictionary(prefixedEventChannel, prefixedPattern, 'patterns');
-
-    return directEntriesCount;
+    return subscriptionsRegistry.removeFromDirectDictionary(pattern, eventChannel, 'patterns');
 };
 
-subscriptionsRegistry.removeFromDirectDictionary = (prefixedEventChannel, prefixedToken, dictionary) =>
+subscriptionsRegistry.removeFromDirectDictionary = (token, eventChannel, dictionary) =>
 {
-    let tokens = subscriptionsRegistry[dictionary];
+    let tokensMap = subscriptionsRegistry[dictionary];
 
-    let entry = tokens[prefixedToken];
-    
-    if(entry !== undefined)
+    let eventChannelsForToken = tokensMap.get(token);
+
+    let subscribersCount = 0;
+
+    if(eventChannelsForToken !== undefined)
     {
-        delete entry[prefixedEventChannel];    
-    }
+        eventChannelsForToken.delete(eventChannel);
         
-    return Object.keys(entry).length;
+        subscribersCount = eventChannelsForToken.size;
+
+        if(subscribersCount === 0)
+        {
+            tokensMap.delete(token);   
+        }
+    }
+
+    return subscribersCount;
 }
 
-subscriptionsRegistry.removeFromReverseDictionary = (prefixedEventChannel, prefixedToken, dictionary) => 
+subscriptionsRegistry.removeFromReverseDictionary = (eventChannel, token, dictionary) => 
 {
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
+    let reverseEntry = reverseRegistry.get(eventChannel);
+
+    let tokensCount = 0;
 
     if(reverseEntry !== undefined)
     {
-        reverseEntry.timestamp = Date.now();
+        reverseEntry[dictionary].delete(token);
 
-        let tokens = reverseEntry[dictionary];
+        if((reverseEntry.channels.size === 0) && (reverseEntry.patterns.size === 0))
+        {
+            reverseRegistry.delete(eventChannel);
+        }
+        else
+        {
+            reverseEntry.timestamp = Date.now();
 
-        delete tokens[prefixedToken];    
-    }        
+            tokensCount = reverseEntry[dictionary].size;
+        }
+    }    
+    
+    return tokensCount;
 };
 
-subscriptionsRegistry.removeChannelsSubscription = (prefixedEventChannel) =>
+subscriptionsRegistry.removeTokensSubscription = (eventChannel, dictionary) => 
 {
-        // unprefixed channels to use with Redis unsubscription
-    let channelsKeys = undefined;
+    let tokens = undefined;
+
+    let reverseEntry = subscriptionsRegistry.eventChannels.get(eventChannel);
+
+    if(reverseEntry !== undefined)
+    {
+        tokens = [];
     
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
-
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-    if(reverseEntry === undefined)
-    {
-        return channelsKeys;
-    }
-
-    let prefixedChannelsKeys = undefined;
-
-    if(reverseEntry.channels !== undefined)
-    {
-        prefixedChannelsKeys = Object.keys(reverseEntry.channels);
-    }
+        reverseEntry[dictionary].forEach(token => {
     
-    if(prefixedChannelsKeys)
-    {
-        channelsKeys = [];
+            tokens.push(token);
 
-        let channels = subscriptionsRegistry.channels;
-
-        for(let i = 0; i < prefixedChannelsKeys.length; ++i)
+            subscriptionsRegistry.removeFromDirectDictionary(token, eventChannel, dictionary);                        
+        });
+    
+        reverseEntry[dictionary].clear();   
+        
+        if((reverseEntry.channels.size === 0) && (reverseEntry.patterns.size === 0))
         {
-            let prefixedChannel = prefixedChannelsKeys[i];
-            
-            let subscribers = channels[prefixedChannel];
-
-            if(subscribers !== undefined)
-            {
-                delete subscribers[prefixedEventChannel];
-            }            
-
-            if(Object.keys(subscribers).length === 0)
-            {
-                channelsKeys.push(prefixedChannel.substr(channelPrefixLength));
-
-                delete channels[prefixedChannel];
-            }
+            subscriptionsRegistry.eventChannels.delete(eventChannel);    
         }
     }
     
-    let needRemoveReverseEntry = false;
-
-    if(reverseEntry.patterns !== undefined)
-    {
-        needRemoveReverseEntry = (Object.keys(reverseEntry.patterns).length === 0);
-    }
-    
-    if(needRemoveReverseEntry)
-    {
-        delete reverseRegistry[prefixedEventChannel];
-    }
-    
-    return channelsKeys;
+    return tokens;
 }
 
-subscriptionsRegistry.removePatternsSubscription = (prefixedEventChannel) =>
-{
-        // unprefixed patterns to use with Redis unsubscription
-    let patternsKeys = undefined;
-
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
-
-    let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-    if(reverseEntry === undefined)
-    {
-        return patternsKeys;
-    }
-    
-    let prefixedPatternsKeys = undefined;
-
-    if(reverseEntry.patterns !== undefined)
-    {
-        prefixedPatternsKeys = Object.keys(reverseEntry.patterns);
-    }
-    
-    if(prefixedPatternsKeys)
-    {
-        patternsKeys = [];
-
-        let patterns = subscriptionsRegistry.patterns;
-
-        for(let i = 0; i < prefixedPatternsKeys.length; ++i)
-        {
-            let prefixedPattern = prefixedPatternsKeys[i];
-            
-            let subscribers = patterns[prefixedPattern]; 
-
-            if(subscribers !== undefined)
-            {
-                delete subscribers[prefixedEventChannel];
-            }                        
-
-            if(Object.keys(subscribers).length === 0)
-            {
-                patternsKeys.push(prefixedPattern.substr(patternPrefixLength));
-
-                delete patterns[prefixedPattern]; 
-            }
-        }        
-    }
-    
-    let needRemoveReverseEntry = false;
-
-    if(reverseEntry.channels !== undefined)
-    {
-        needRemoveReverseEntry = (Object.keys(reverseEntry.channels).length === 0);
-    }
-    
-    if(needRemoveReverseEntry)
-    {
-        delete reverseRegistry[prefixedEventChannel];
-    }
-    
-    return patternsKeys;    
-}
-
-subscriptionsRegistry.removeSubscription = (prefixedEventChannel) => 
-{
+subscriptionsRegistry.removeSubscription = (eventChannel) => 
+{    
     let entries = {};
 
-    let channels = subscriptionsRegistry.removeChannelsSubscription(prefixedEventChannel);
-    let patterns = subscriptionsRegistry.removePatternsSubscription(prefixedEventChannel);
+    let channels = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'channels');
+    let patterns = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'patterns');
 
     if(channels !== undefined)
     {
@@ -353,94 +253,94 @@ subscriptionsRegistry.removeSubscription = (prefixedEventChannel) =>
 
 function subscribeForChannels(message, command)
 {
-    let reply = null;
-
-    let entries = message.args;
-
-    if(entries === undefined)
-    {
-        sendReply(message, null, reply);
-
-        return;
-    }
-
     let eventChannel = message.eventChannel;
 
-    if(typeof eventChannel !== 'string')
-    {
-        // (meaning eventChannel is undefined or of incorrect type)
-
-        // no anonymous subscribe allowed, because it is shared environment
-        
-        sendReply(message, {args: entries, command: command, code: 'no anonymous subscribe allowed'});
-
-        return;
-    }
-
-        // add entries (channels) to registry in presumption that Redis takes them correctly
-
-    for(let i = 0; i < entries.length; ++i)
-    {
-        reply = entries[i];
-
-        let subscribersCount = subscriptionsRegistry.addChannel(SUBSCRIBED, reply, eventChannel);        
-
-        let wrappedMessage = {event: 'subscribe', channel: reply, count: subscribersCount};
-
-        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});    
-    }            
-
-    startGarbageCollectorIfNeeded();
+    let entries = message.args;
     
-    sendReply(message, null, reply);
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
+    {        
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
+        {
+            // add entries (channels) to registry in presumption that Redis takes them correctly    
 
-    redisSubscribedClient.send_command(command, entries);        
+            let stableEntries = [];
+
+            entries.forEach(channel => {
+
+                if((typeof channel === 'string') && (channel.length > 0))
+                {
+                    stableEntries.push(channel);
+
+                    let subscribersCount = subscriptionsRegistry.addChannel(channel, eventChannel); 
+    
+                    let wrappedMessage = {event: 'subscribe', channel: channel, count: subscribersCount};
+    
+                    fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
+                }
+            });
+
+            if(stableEntries.length > 0)
+            {
+                startGarbageCollectorIfNeeded();
+
+                sendReply(message, null, stableEntries);
+    
+                redisSubscribedClient.send_command(command, stableEntries);     
+            }
+        }
+    }
+    else
+    {
+        // eventChannel is undefined or of incorrect type
+
+        sendError(message, 'no anonymous subscribe allowed in shared environment');
+    }           
 }
 
 function subscribeForPatterns(message, command)
 {
-    let reply = null;
-
-    let entries = message.args;
-
-    if(entries === undefined)
-    {
-        sendReply(message, null, reply);
-
-        return;
-    }
-
     let eventChannel = message.eventChannel;
 
-    if(typeof eventChannel !== 'string')
-    {
-        // (meaning eventChannel is undefined or of incorrect type)
-
-        // no anonymous subscribe allowed, because it is shared environment
-        
-        sendReply(message, {args: entries, command: command, code: 'no anonymous subscribe allowed'});
-
-        return;
-    }
-
-        // add entries (patterns) to registry in presumption that Redis takes them correctly
-
-    for(let i = 0; i < entries.length; ++i)
-    {
-        reply = entries[i];
-
-        let subscribersCount = subscriptionsRegistry.addPattern(SUBSCRIBED, reply, eventChannel);        
-
-        let wrappedMessage = {event: 'psubscribe', pattern: reply, count: subscribersCount};
-        
-        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});    
-    }            
-
-    startGarbageCollectorIfNeeded();
+    let entries = message.args;
     
-    sendReply(message, null, reply);
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
+    {        
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
+        {
+            // add entries (patterns) to registry in presumption that Redis takes them correctly    
 
-    redisSubscribedClient.send_command(command, entries);        
+            let stableEntries = [];
+
+            entries.forEach(pattern => {
+
+                if((typeof pattern === 'string') && (pattern.length > 0))
+                {
+                    stableEntries.push(pattern);
+
+                    let subscribersCount = subscriptionsRegistry.addPattern(pattern, eventChannel); 
+    
+                    let wrappedMessage = {event: 'psubscribe', pattern: pattern, count: subscribersCount};
+    
+                    fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
+                }
+            });
+
+            if(stableEntries.length > 0)
+            {
+                startGarbageCollectorIfNeeded();
+
+                sendReply(message, null, stableEntries);
+    
+                redisSubscribedClient.send_command(command, stableEntries);     
+            }
+        }
+    }
+    else
+    {
+        // eventChannel is undefined or of incorrect type
+
+        sendError(message, 'no anonymous subscribe allowed in shared environment');
+    }           
 }
 
 function unsubscribeFromChannels(message, command)
@@ -449,54 +349,54 @@ function unsubscribeFromChannels(message, command)
 
     let entries = message.args;
 
-    if(typeof eventChannel !== 'string')
-    {
-        // (meaning eventChannel is undefined or of incorrect type)
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
+    {   
+        let stableEntries = undefined;
 
-        // no 'anonymous' unsubscribe allowed, because it is shared environment
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
+        {
+            // remove entries (channels) from registry in presumption that Redis takes unsubscription correctly    
+            
+            stableEntries = [];
 
-        sendReply(message, {args: entries, command: command, code: 'no anonymous unsubscribe allowed'});
-    }    
+            entries.forEach(channel => {
 
-    let prefixedEventChannel = channelPrefix + eventChannel;
+                if((typeof channel === 'string') && (channel.length > 0))
+                {
+                    stableEntries.push(channel);
+
+                    let subscribersCount = subscriptionsRegistry.removeChannel(channel, eventChannel); 
     
-    let channelsToRemove = undefined;
+                    let wrappedMessage = {event: 'unsubscribe', channel: channel, count: subscribersCount};
+    
+                    fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
+                }
+            });
+        }
+        else 
+        {
+            // no entries (channels) specified to unsubscribe from
 
-    let reply = null;
+            // so, unsubscribe this client from all channels
 
-    if(entries === undefined)
-    {
-        // unsubscribe this client from all channels
+            stableEntries = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'channels');  
+        }
 
-        channelsToRemove = subscriptionsRegistry.removeChannelsSubscription(prefixedEventChannel);
+        if(stableEntries && (stableEntries.length > 0))
+        {
+            stopGarbageCollectorIfNeeded();
+
+            sendReply(message, null, stableEntries);                                    
+
+            removeTokensSubscriptionFromRedis(stableEntries, 'unsubscribe', 'channels');
+        }            
     }
     else
-    {        
-        for(let i = 0; i < entries.length; ++i)
-        {
-            reply = entries[i];
+    {
+        // eventChannel is undefined or of incorrect type
 
-            let subscribersCount = subscriptionsRegistry.removeChannel(reply, eventChannel);
-                                        
-            let wrappedMessage = {event: 'unsubscribe', channel: reply, count: subscribersCount};
-
-            fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});    
-            
-            if(subscribersCount === 0)
-            {
-                if(channelsToRemove === undefined)
-                {
-                    channelsToRemove = [];
-                }
-
-                channelsToRemove.push(reply);    
-            }
-        }  
-    }
-
-    sendReply(message, null, reply);
-
-    removeSubscriptionsFromRedis({channels: channelsToRemove});
+        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
+    }           
 }
 
 function unsubscribeFromPatterns(message, command)
@@ -505,130 +405,130 @@ function unsubscribeFromPatterns(message, command)
 
     let entries = message.args;
 
-    if(typeof eventChannel !== 'string')
-    {
-        // (meaning eventChannel is undefined or of incorrect type)
-
-        // no 'anonymous' unsubscribe allowed, because it is shared environment
-
-        sendReply(message, {args: entries, command: command, code: 'no anonymous unsubscribe allowed'});
-    }    
-
-    let prefixedEventChannel = channelPrefix + eventChannel;
-
-    let patternsToRemove = undefined;
-
-    let reply = null;
-
-    if(entries === undefined)
-    {
-        // unsubscribe this client from all patterns
-
-        patternsToRemove = subscriptionsRegistry.removePatternsSubscription(prefixedEventChannel);
-    }
-    else
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {        
-        for(let i = 0; i < entries.length; ++i)
+        let stableEntries = undefined;
+
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
         {
-            reply = entries[i];
+            // remove entries (patterns) from registry in presumption that Redis takes unsubscription correctly    
 
-            let subscribersCount = subscriptionsRegistry.removePattern(reply, eventChannel);
-                                        
-            let wrappedMessage = {event: 'punsubscribe', pattern: reply, count: subscribersCount};            
+            stableEntries = [];
 
-            fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});    
-            
-            if(subscribersCount === 0)
-            {
-                if(patternsToRemove === undefined)
+            entries.forEach(pattern => {
+
+                if((typeof pattern === 'string') && (pattern.length > 0))
                 {
-                    patternsToRemove = [];
+                    stableEntries.push(pattern);
+
+                    let subscribersCount = subscriptionsRegistry.removePattern(pattern, eventChannel); 
+    
+                    let wrappedMessage = {event: 'punsubscribe', pattern: pattern, count: subscribersCount};
+    
+                    fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
                 }
-                
-                patternsToRemove.push(reply);    
-            }
+            });
+        }
+        else 
+        {
+            // no entries (patterns) specified to unsubscribe from
+
+            // so, unsubscribe this client from all patterns
+
+            stableEntries = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'patterns');  
+        }
+
+        if(stableEntries && (stableEntries.length > 0))
+        {
+            stopGarbageCollectorIfNeeded();
+
+            sendReply(message, null, stableEntries);                                    
+
+            removeTokensSubscriptionFromRedis(stableEntries, 'punsubscribe', 'patterns');            
         }                    
     }
+    else
+    {
+        // eventChannel is undefined or of incorrect type
 
-    sendReply(message, null, reply);
-
-    removeSubscriptionsFromRedis({patterns: patternsToRemove});
+        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
+    }           
 }
 
-function notifySubscribersOnPubsubEvent(prefixedToken, dictionary, message)
+function notifySubscribersOnPubsubEvent(token, dictionary, message)
 {
-    let subscribers = subscriptionsRegistry[dictionary][prefixedToken];    
+    let subscribers = subscriptionsRegistry[dictionary].get(token);    
 
-    if(subscribers === undefined)
+    if(subscribers !== undefined)
     {
-        return;
-    }
+        subscribers.forEach(eventChannel => {
 
-    let prefixedEventChannelsKeys = Object.keys(subscribers);
-    
-    for(let i = 0; i < prefixedEventChannelsKeys.length; ++i)
-    {
-        let prefixedEventChannel = prefixedEventChannelsKeys[i];
-
-        let eventChannel = prefixedEventChannel.substr(channelPrefixLength);
-
-        fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});                 
+            fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: message});      
+        });        
     }
 }
 
 function removeSubscriptionsFromRedis(entries)
 {
-    let channels = entries.channels;
-    let patterns = entries.patterns;
+    removeTokensSubscriptionFromRedis(entries.channels, 'unsubscribe', 'channels');
+    removeTokensSubscriptionFromRedis(entries.patterns, 'punsubscribe', 'patterns');
+}
 
-    if(channels && (channels.length > 0))
+function removeTokensSubscriptionFromRedis(tokens, command, dictionary)
+{
+    // unsubscribe from Redis only if no one now listens;
+    // corresponding entries (channels|patterns) must be previously removed from subscriptions registry
+
+    if(tokens && (tokens.length > 0))
     {
-        redisSubscribedClient.send_command('unsubscribe', channels);
-    }
-    
-    if(patterns && (patterns.length > 0))
-    {
-        redisSubscribedClient.send_command('punsubscribe', patterns);
-    }    
+        let tokensToUnsubscribe = [];
+
+        let tokensMap = subscriptionsRegistry[dictionary];
+        
+        tokens.forEach(token => {
+
+            if(tokensMap.get(token) === undefined)
+            {
+                tokensToUnsubscribe.push(token);                
+            }
+        });        
+
+        if(tokensToUnsubscribe.length > 0)
+        {
+            redisSubscribedClient.send_command(command, tokensToUnsubscribe);
+        }
+    }        
 }
 
 //-----------------------------
 
 redisSubscribedClient.on('message', (channel, message) => 
 {
-    let prefixedChannel = channelPrefix + channel;
-
     let wrappedMessage = {event: 'message', channel: channel, message: message};
 
-    notifySubscribersOnPubsubEvent(prefixedChannel, 'channels', wrappedMessage);
+    notifySubscribersOnPubsubEvent(channel, 'channels', wrappedMessage);
 });
 
 redisSubscribedClient.on('pmessage', (pattern, channel, message) => 
 {
-    let prefixedPattern = patternPrefix + pattern;
-
     let wrappedMessage = {event: 'pmessage', pattern: pattern, channel: channel, message: message};
 
-    notifySubscribersOnPubsubEvent(prefixedPattern, 'patterns', wrappedMessage);
+    notifySubscribersOnPubsubEvent(pattern, 'patterns', wrappedMessage);
 });
 
 /*
 redisSubscribedClient.on('message_buffer', (channel, message) => 
 {
-    let prefixedChannel = channelPrefix + channel;
-
     let wrappedMessage = {event: 'message_buffer', channel: channel, message: message};
-    
-    notifySubscribersOnPubsubEvent(prefixedChannel, 'channels', wrappedMessage);
+
+    notifySubscribersOnPubsubEvent(channel, 'channels', wrappedMessage);
 });
 
 redisSubscribedClient.on('pmessage_buffer', (pattern, channel, message) => 
 {
-    let prefixedPattern = patternPrefix + pattern;
-
     let wrappedMessage = {event: 'pmessage_buffer', pattern: pattern, channel: channel, message: message};
 
-    notifySubscribersOnPubsubEvent(prefixedPattern, 'patterns', wrappedMessage);
+    notifySubscribersOnPubsubEvent(pattern, 'patterns', wrappedMessage);
 });
 */
 
@@ -638,14 +538,15 @@ function updateTimeLicense(message)
 {
     let eventChannel = message.eventChannel;
 
-    if(typeof eventChannel !== 'string')
+    if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {
-        return;
+        let entry = subscriptionsRegistry.eventChannels.get(eventChannel);
+
+        if(entry !== undefined)
+        {
+            entry.timestamp = Date.now();
+        }
     }
-
-    let prefixedEventChannel = channelPrefix + eventChannel;
-
-    subscriptionsRegistry.addToReverseDictionary(TOUCHED, prefixedEventChannel);
 }
 
 //-----------------------------
@@ -659,52 +560,60 @@ var garbageCollectionIntervalId;
 
 function startGarbageCollectorIfNeeded()
 {
-    if(!garbageCollectionPresent)
+    if(subscriptionsRegistry.eventChannels.size > 0)
     {
-        garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
-    
-        garbageCollectionPresent = true;
-    
-        //console.log('garbage collector is now on');        
-    }    
+        if(!garbageCollectionPresent)
+        {
+            garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
+        
+            garbageCollectionPresent = true;
+        
+            //console.log('garbage collector is now on');        
+        }        
+    }
 }
 
 function stopGarbageCollectorIfNeeded()
 {
-    if(Object.keys(subscriptionsRegistry.eventChannels).length === 0)
+    if(subscriptionsRegistry.eventChannels.size === 0)
     {
-        clearInterval(garbageCollectionIntervalId);
+        if(garbageCollectionPresent)
+        {
+            clearInterval(garbageCollectionIntervalId);
 
-        garbageCollectionPresent = false;
-
-        //console.log('garbage collector is now off');
-    }    
+            garbageCollectionPresent = false;
+    
+            //console.log('garbage collector is now off');    
+        }
+    }
 }
 
 function onGarbageCollectorTick()
-{
+{    
+    let eventChannelsToRemove = [];
+
     let timeNow = Date.now();
 
-    let reverseRegistry = subscriptionsRegistry.eventChannels;
+    subscriptionsRegistry.eventChannels.forEach((entry, eventChannel) => {
 
-    let prefixedEventChannels = Object.keys(reverseRegistry);
+        let age = timeNow - entry.timestamp;
 
-    for(let i = 0; i < prefixedEventChannels.length; ++i)
-    {
-        let prefixedEventChannel = prefixedEventChannels[i];
-
-        let reverseEntry = reverseRegistry[prefixedEventChannel];
-
-        let age = timeNow - reverseEntry.timestamp;
-
-        console.log(prefixedEventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
+        //console.log(eventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
 
         if(age >= TIME_LICENSE_PERIOD)
         {
-            let entries = subscriptionsRegistry.removeSubscription(prefixedEventChannel);
+            eventChannelsToRemove.push(eventChannel);
+        }        
+    });
 
-            removeSubscriptionsFromRedis(entries);
-        }
+    if(eventChannelsToRemove.length > 0)
+    {
+        eventChannelsToRemove.forEach(eventChannel => {
+            
+            let entries = subscriptionsRegistry.removeSubscription(eventChannel);
+
+            removeSubscriptionsFromRedis(entries);    
+        });        
     }
 
     stopGarbageCollectorIfNeeded();
@@ -732,7 +641,7 @@ fluidsync.on('disconnect', () => {
 
 fluidsync.on(proxyChannel, function (data) 
 {
-    console.log(data);
+    //console.log(data);
     
     let message = data.payload;
 
@@ -745,15 +654,18 @@ fluidsync.on(proxyChannel, function (data)
 
     command = command.toUpperCase();
 
-    let pubsubOperation = pubsubCommands[command];
-
     if(command === 'HEARTBEAT')
     {
         updateTimeLicense(message);
+
+        return;
     }
-    else if(pubsubOperation !== undefined)
+    
+    let pubsubHandler = pubsubCommands[command];
+
+    if(pubsubHandler !== undefined)
     {        
-        pubsubOperation(message, command);
+        pubsubHandler(message, command);
     }
     else
     {
@@ -770,14 +682,26 @@ function sendReply(message, err, reply)
 {
     let feedbackChannel = message.feedbackChannel;
 
-    if(typeof feedbackChannel !== 'string')
+    if((typeof feedbackChannel === 'string') && (feedbackChannel.length > 0))
     {
-        return;
-    }
+        let payload = {id: message.id, error: err, reply: reply};
 
-    fluidsync.emit('publish', 
-        {channel: feedbackChannel, from: proxyName, payload: {id: message.id, error: err, reply: reply}});            
+        fluidsync.emit('publish', {channel: feedbackChannel, from: proxyName, payload: payload});            
+    }
 }
+
+function sendError(message, info)
+{
+    let err = 
+    {
+        args: message.args, 
+        command: message.command, 
+        code: 'ERR', 
+        info: info
+    };
+
+    sendReply(message, err, null);
+}           
 
 //-----------------------------
 
