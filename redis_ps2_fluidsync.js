@@ -1,5 +1,5 @@
     // Redis client
-const redis = require('redis');
+    const redis = require('redis');
 
     // to do use config or commandline arg to specify Redis server attributes
 const redisHost = '127.0.0.1';
@@ -157,21 +157,21 @@ subscriptionsRegistry.removeFromDirectDictionary = (token, eventChannel, diction
 
     let eventChannelsForToken = tokensMap.get(token);
 
-    let directEntriesCount = 0;
+    let subscribersCount = 0;
 
     if(eventChannelsForToken !== undefined)
     {
         eventChannelsForToken.delete(eventChannel);
         
-        directEntriesCount = eventChannelsForToken.size;
+        subscribersCount = eventChannelsForToken.size;
 
-        if(directEntriesCount === 0)
+        if(subscribersCount === 0)
         {
             tokensMap.delete(token);   
         }
     }
 
-    return directEntriesCount;
+    return subscribersCount;
 }
 
 subscriptionsRegistry.removeFromReverseDictionary = (eventChannel, token, dictionary) => 
@@ -179,6 +179,8 @@ subscriptionsRegistry.removeFromReverseDictionary = (eventChannel, token, dictio
     let reverseRegistry = subscriptionsRegistry.eventChannels;
 
     let reverseEntry = reverseRegistry.get(eventChannel);
+
+    let tokensCount = 0;
 
     if(reverseEntry !== undefined)
     {
@@ -191,8 +193,12 @@ subscriptionsRegistry.removeFromReverseDictionary = (eventChannel, token, dictio
         else
         {
             reverseEntry.timestamp = Date.now();
+
+            tokensCount = reverseEntry[dictionary].size;
         }
-    }        
+    }    
+    
+    return tokensCount;
 };
 
 subscriptionsRegistry.removeTokensSubscription = (eventChannel, dictionary) => 
@@ -212,7 +218,12 @@ subscriptionsRegistry.removeTokensSubscription = (eventChannel, dictionary) =>
             subscriptionsRegistry.removeFromDirectDictionary(token, eventChannel, dictionary);                        
         });
     
-        reverseEntry[dictionary].clear();            
+        reverseEntry[dictionary].clear();   
+        
+        if((reverseEntry.channels.size === 0) && (reverseEntry.patterns.size === 0))
+        {
+            subscriptionsRegistry.eventChannels.delete(eventChannel);    
+        }
     }
     
     return tokens;
@@ -248,7 +259,7 @@ function subscribeForChannels(message, command)
     
     if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {        
-        if(entries && (entries.forEach !== undefined))
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
         {
             // add entries (channels) to registry in presumption that Redis takes them correctly    
 
@@ -282,17 +293,7 @@ function subscribeForChannels(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        // no anonymous subscribe allowed, because it is shared environment
-        
-        let err = 
-        {
-            args: entries, 
-            command: command, 
-            code: 'ERR', 
-            info: 'no anonymous subscribe allowed'
-        };
-
-        sendReply(message, err);
+        sendError(message, 'no anonymous subscribe allowed in shared environment');
     }           
 }
 
@@ -304,7 +305,7 @@ function subscribeForPatterns(message, command)
     
     if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {        
-        if(entries && (entries.forEach !== undefined))
+        if(entries && (entries.forEach !== undefined) && (entries.length > 0))
         {
             // add entries (patterns) to registry in presumption that Redis takes them correctly    
 
@@ -338,17 +339,7 @@ function subscribeForPatterns(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        // no anonymous psubscribe allowed, because it is shared environment
-        
-        let err = 
-        {
-            args: entries, 
-            command: command, 
-            code: 'ERR', 
-            info: 'no anonymous psubscribe allowed'
-        };
-
-        sendReply(message, err);
+        sendError(message, 'no anonymous subscribe allowed in shared environment');
     }           
 }
 
@@ -359,12 +350,14 @@ function unsubscribeFromChannels(message, command)
     let entries = message.args;
 
     if((typeof eventChannel === 'string') && (eventChannel.length > 0))
-    {        
+    {   
+        let stableEntries = undefined;
+
         if(entries && (entries.forEach !== undefined) && (entries.length > 0))
         {
-            // add entries (channels) to registry in presumption that Redis takes them correctly    
-
-            let stableEntries = [];
+            // remove entries (channels) from registry in presumption that Redis takes unsubscription correctly    
+            
+            stableEntries = [];
 
             entries.forEach(channel => {
 
@@ -379,15 +372,6 @@ function unsubscribeFromChannels(message, command)
                     fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
                 }
             });
-
-            if(stableEntries.length > 0)
-            {
-                stopGarbageCollectorIfNeeded();
-
-                sendReply(message, null, stableEntries);
-    
-                redisSubscribedClient.send_command(command, stableEntries);     
-            }
         }
         else 
         {
@@ -395,26 +379,23 @@ function unsubscribeFromChannels(message, command)
 
             // so, unsubscribe this client from all channels
 
-            let allChannelsToRemove = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'channels');  
-
-            redisSubscribedClient.send_command(command, allChannelsToRemove);          
+            stableEntries = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'channels');  
         }
+
+        if(stableEntries && (stableEntries.length > 0))
+        {
+            stopGarbageCollectorIfNeeded();
+
+            sendReply(message, null, stableEntries);                                    
+
+            removeTokensSubscriptionFromRedis(stableEntries, 'unsubscribe', 'channels');
+        }            
     }
     else
     {
         // eventChannel is undefined or of incorrect type
 
-        // no anonymous unsubscribe allowed, because it is shared environment
-        
-        let err = 
-        {
-            args: entries, 
-            command: command, 
-            code: 'ERR', 
-            info: 'no anonymous unsubscribe allowed'
-        };
-
-        sendReply(message, err);
+        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
     }           
 }
 
@@ -426,11 +407,13 @@ function unsubscribeFromPatterns(message, command)
 
     if((typeof eventChannel === 'string') && (eventChannel.length > 0))
     {        
+        let stableEntries = undefined;
+
         if(entries && (entries.forEach !== undefined) && (entries.length > 0))
         {
-            // add entries (patterns) to registry in presumption that Redis takes them correctly    
+            // remove entries (patterns) from registry in presumption that Redis takes unsubscription correctly    
 
-            let stableEntries = [];
+            stableEntries = [];
 
             entries.forEach(pattern => {
 
@@ -438,22 +421,13 @@ function unsubscribeFromPatterns(message, command)
                 {
                     stableEntries.push(pattern);
 
-                    let subscribersCount = subscriptionsRegistry.removeChannel(pattern, eventChannel); 
+                    let subscribersCount = subscriptionsRegistry.removePattern(pattern, eventChannel); 
     
                     let wrappedMessage = {event: 'punsubscribe', pattern: pattern, count: subscribersCount};
     
                     fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
                 }
             });
-
-            if(stableEntries.length > 0)
-            {
-                stopGarbageCollectorIfNeeded();
-
-                sendReply(message, null, stableEntries);
-    
-                redisSubscribedClient.send_command(command, stableEntries);     
-            }
         }
         else 
         {
@@ -461,26 +435,23 @@ function unsubscribeFromPatterns(message, command)
 
             // so, unsubscribe this client from all patterns
 
-            let allPatternsToRemove = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'patterns');  
-
-            redisSubscribedClient.send_command(command, allPatternsToRemove);          
+            stableEntries = subscriptionsRegistry.removeTokensSubscription(eventChannel, 'patterns');  
         }
+
+        if(stableEntries && (stableEntries.length > 0))
+        {
+            stopGarbageCollectorIfNeeded();
+
+            sendReply(message, null, stableEntries);                                    
+
+            removeTokensSubscriptionFromRedis(stableEntries, 'punsubscribe', 'patterns');            
+        }                    
     }
     else
     {
         // eventChannel is undefined or of incorrect type
 
-        // no anonymous punsubscribe allowed, because it is shared environment
-        
-        let err = 
-        {
-            args: entries, 
-            command: command, 
-            code: 'ERR', 
-            info: 'no anonymous punsubscribe allowed'
-        };
-
-        sendReply(message, err);
+        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
     }           
 }
 
@@ -499,18 +470,34 @@ function notifySubscribersOnPubsubEvent(token, dictionary, message)
 
 function removeSubscriptionsFromRedis(entries)
 {
-    let channels = entries.channels;
-    let patterns = entries.patterns;
+    removeTokensSubscriptionFromRedis(entries.channels, 'unsubscribe', 'channels');
+    removeTokensSubscriptionFromRedis(entries.patterns, 'punsubscribe', 'patterns');
+}
 
-    if(channels && (channels.length > 0))
+function removeTokensSubscriptionFromRedis(tokens, command, dictionary)
+{
+    // unsubscribe from Redis only if no one now listens;
+    // corresponding entries (channels|patterns) must be previously removed from subscriptions registry
+
+    if(tokens && (tokens.length > 0))
     {
-        redisSubscribedClient.send_command('unsubscribe', channels);
-    }
-    
-    if(patterns && (patterns.length > 0))
-    {
-        redisSubscribedClient.send_command('punsubscribe', patterns);
-    }    
+        let tokensToUnsubscribe = [];
+
+        let tokensMap = subscriptionsRegistry[dictionary];
+        
+        tokens.forEach(token => {
+
+            if(tokensMap.get(token) === undefined)
+            {
+                tokensToUnsubscribe.push(token);                
+            }
+        });        
+
+        if(tokensToUnsubscribe.length > 0)
+        {
+            redisSubscribedClient.send_command(command, tokensToUnsubscribe);
+        }
+    }        
 }
 
 //-----------------------------
@@ -702,6 +689,19 @@ function sendReply(message, err, reply)
         fluidsync.emit('publish', {channel: feedbackChannel, from: proxyName, payload: payload});            
     }
 }
+
+function sendError(message, info)
+{
+    let err = 
+    {
+        args: message.args, 
+        command: message.command, 
+        code: 'ERR', 
+        info: info
+    };
+
+    sendReply(message, err, null);
+}           
 
 //-----------------------------
 
