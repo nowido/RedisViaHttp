@@ -551,9 +551,9 @@ function updateTimeLicense(message)
 
 //-----------------------------
 
-const GARBAGE_COLLECTOR_PERIOD = 15 * 1000; // 15 min
+const GARBAGE_COLLECTOR_PERIOD = 15 * 60 * 1000; // 15 min
 
-const TIME_LICENSE_PERIOD = 20 * 1000; // 20 min
+const TIME_LICENSE_PERIOD = 20 * 60 * 1000; // 20 min
 
 var garbageCollectionPresent = false;
 var garbageCollectionIntervalId;
