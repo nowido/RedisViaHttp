@@ -289,6 +289,8 @@ redisProxy.prototype.runHeartBeat = function()
             this.heartBeatIntervalId = setInterval(this.onHeartBeat.bind(this), this.heartBeatPeriod);
     
             this.heartBeat = true;
+
+            console.log('heartbeat is now on');
         }                
     }   
 }
@@ -304,6 +306,8 @@ redisProxy.prototype.checkHeartBeat = function()
             clearInterval(this.heartBeatIntervalId);
 
             this.heartBeat = false;    
+
+            console.log('heartbeat is now off');
         }
     }
 }
