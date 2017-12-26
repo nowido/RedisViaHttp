@@ -68,6 +68,11 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
         }
     });
 
+    this.redisSocket.on('disconnect', () => {
+
+        this.deactivateHeartBeat();    
+    });
+
     return this;
 }
 
@@ -301,14 +306,19 @@ redisProxy.prototype.checkHeartBeat = function()
 
     if((this.subscriptionsRegistry.channels.size === 0) && (this.subscriptionsRegistry.patterns.size === 0))
     {
-        if(this.heartBeat)
-        {
-            clearInterval(this.heartBeatIntervalId);
+        this.deactivateHeartBeat();
+    }
+}
 
-            this.heartBeat = false;    
+redisProxy.prototype.deactivateHeartBeat = function()
+{
+    if(this.heartBeat)
+    {
+        clearInterval(this.heartBeatIntervalId);
 
-            console.log('heartbeat is now off');
-        }
+        this.heartBeat = false;    
+
+        console.log('heartbeat is now off');
     }
 }
 
