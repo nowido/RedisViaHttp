@@ -23,14 +23,15 @@
                     print('event: ' + message.event);    
                 };
             }
-
-            let redis = new redisProxy('https://fluidsync2.herokuapp.com', 'unique_instance_name', onConnect);
+            
+            let redis = new redisProxy({redisProxyName: 'unique_instance_name', onConnect: onConnect});
 
             let sendButton = $('#sendButton');
             let subscribeButton = $('#subscribeButton');
             let unsubscribeButton = $('#unsubscribeButton');
             let subscribePatternButton = $('#subscribePatternButton');
             let unsubscribePatternButton = $('#unsubscribePatternButton');
+            let tryBlockingButton = $('#tryBlockingButton');
 
             sendButton.click(() => 
             {
@@ -69,7 +70,15 @@
                     print('error: ' + err);
                     print('reply: ' + reply);                
                 });                                    
-            });            
+            });   
+            
+            tryBlockingButton.click(() => {
+                redis.sendCommand('blpop', ['some', 0], (err, reply) => {
+                    console.log(err);
+                    print('error: ' + err);
+                    print('reply: ' + reply);                
+                });                                    
+            });
         });
         
     </script>
@@ -93,6 +102,9 @@
     <button id="unsubscribePatternButton">
         Unsubscribe q*
     </button>
-    
+
+    <button id="tryBlockingButton">
+        BLPOP some
+    </button>    
 </body>
 </html>
