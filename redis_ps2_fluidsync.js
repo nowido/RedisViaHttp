@@ -40,6 +40,13 @@ const pubsubCommands =
     'UNSUBSCRIBE': unsubscribeFromChannels
 };
 
+const blockingCommands = 
+{
+    'BLPOP': true,
+    'BRPOP': true,
+    'BRPOPLPUSH': true
+};
+
 //-----------------------------
 
 var subscriptionsRegistry = 
@@ -645,34 +652,45 @@ fluidsync.on(proxyChannel, function (data)
     
     let message = data.payload;
 
+    if(message === undefined)
+    {
+        return;
+    }
+
     let command = message.command;
 
-    if((message === undefined) || (command === undefined))
+    if(typeof command === 'string')
     {
-        return;
-    }
+        command = command.trim().toUpperCase();
 
-    command = command.toUpperCase();
+        if(command.length > 0)
+        {
+            if(command === 'HEARTBEAT')
+            {
+                updateTimeLicense(message);
+                return;
+            }
+            
+            if(blockingCommands[command])
+            {
+                sendError(message, 'blocking commands unsupported');    
+                return;
+            }
 
-    if(command === 'HEARTBEAT')
-    {
-        updateTimeLicense(message);
-
-        return;
-    }
-    
-    let pubsubHandler = pubsubCommands[command];
-
-    if(pubsubHandler !== undefined)
-    {        
-        pubsubHandler(message, command);
-    }
-    else
-    {
-        redisClient.send_command(command, message.args, (err, reply) => {        
-
-            sendReply(message, err, reply);            
-        });    
+            let pubsubHandler = pubsubCommands[command];
+        
+            if(pubsubHandler !== undefined)
+            {        
+                pubsubHandler(message, command);
+            }
+            else
+            {
+                redisClient.send_command(command, message.args, (err, reply) => {        
+        
+                    sendReply(message, err, reply);            
+                });    
+            }               
+        }
     }
 });
 
