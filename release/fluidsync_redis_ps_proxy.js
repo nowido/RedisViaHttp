@@ -1,5 +1,27 @@
-function redisProxy(communicatorHost, redisProxyName, onConnect)
+function redisProxy(options)
 {   
+    if(!options)
+    {
+        return null;
+    }
+
+    let redisProxyName = options.redisProxyName;
+
+    if(!redisProxyName)
+    {
+        return null;
+    }
+
+    let communicatorHost = options.communicatorHost;
+        
+    if(!communicatorHost)
+    {
+        communicatorHost = 'https://fluidsync2.herokuapp.com';
+    }
+
+    let onConnect = options.onConnect;
+    let onDisconnect = options.onDisconnect;
+
     this.subscribeCommands = 
     {
         'PSUBSCRIBE': this.registerPatterns.bind(this),
@@ -71,6 +93,11 @@ function redisProxy(communicatorHost, redisProxyName, onConnect)
     this.redisSocket.on('disconnect', () => {
 
         this.deactivateHeartBeat();    
+
+        if(onDisconnect)
+        {
+            onDisconnect(this);
+        }        
     });
 
     return this;
