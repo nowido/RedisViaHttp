@@ -16,14 +16,22 @@
             function onConnect(redis)
             {
                 print('FluidSync2 Redis connection: ' + redis.redisSocket.id);    
+
                 redis.onEvent = (message) => {
 
                     console.log(message);
 
                     print('event: ' + message.event);    
                 };
+
+                redis.onPresence = (message) => {
+                    
+                    console.log(message);
+                    
+                    print('event: ' + message.event); 
+                }
             }
-            
+                        
             let redis = new redisProxy({redisProxyName: 'unique_instance_name', onConnect: onConnect});
 
             let sendButton = $('#sendButton');
