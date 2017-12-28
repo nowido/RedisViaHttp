@@ -1,5 +1,5 @@
     // Redis client
-    const redis = require('redis');
+const redis = require('redis');
 
     // to do use config or commandline arg to specify Redis server attributes
 const redisHost = '127.0.0.1';
@@ -22,10 +22,14 @@ const io = require('socket.io-client');
     // to do use config or commandline arg... but, honestly, if where are other FluidSync providers?
 const fluidsync = io('https://fluidsync2.herokuapp.com');  
 
+var fluidsyncSocketId;
+
     // potential clients must know proxyName to compose command channel
 const proxyName = 'unique_instance_name';
 
 const proxyChannel = 'redis-command-' + proxyName;
+
+const proxyPresenceChannel = 'redis-present-' + proxyName;
 
 //-----------------------------
 // Redis PubSub stuff
@@ -568,14 +572,14 @@ var garbageCollectionIntervalId;
 function startGarbageCollectorIfNeeded()
 {
     if(subscriptionsRegistry.eventChannels.size > 0)
-    {
+    {        
         if(!garbageCollectionPresent)
-        {
+        {            
             garbageCollectionIntervalId = setInterval(onGarbageCollectorTick, GARBAGE_COLLECTOR_PERIOD);
         
             garbageCollectionPresent = true;
-        
-            //console.log('garbage collector is now on');        
+                                        
+            //console.log('garbage collector is now on');      
         }        
     }
 }
@@ -585,8 +589,8 @@ function stopGarbageCollectorIfNeeded()
     if(subscriptionsRegistry.eventChannels.size === 0)
     {
         if(garbageCollectionPresent)
-        {
-            clearInterval(garbageCollectionIntervalId);
+        {            
+            clearInterval(garbageCollectionIntervalId);            
 
             garbageCollectionPresent = false;
     
@@ -628,19 +632,65 @@ function onGarbageCollectorTick()
 
 //-----------------------------
 
+    // we broadcast 'presence_heartbeat' event to all remote clients
+    // this is period of presence notifications
+const PRESENCE_HEARTBEAT_PERIOD = 1 * 60 * 1000; // 1 min
+
+var presenceIntervalId;
+
+function startPresence()
+{
+    if(presenceIntervalId === undefined)
+    {
+        presenceIntervalId = setInterval(onPresenceTick, PRESENCE_HEARTBEAT_PERIOD);
+    }
+}
+
+function stopPresence()
+{
+    if(presenceIntervalId !== undefined)
+    {
+        clearInterval(presenceIntervalId);
+
+        presenceIntervalId = undefined;
+    }    
+}
+
+function onPresenceTick()
+{
+    if(fluidsyncSocketId !== undefined)
+    {
+        let wrappedMessage = {event: 'presence_heartbeat', proxySocketId: fluidsyncSocketId};
+
+        fluidsync.emit('publish', {channel: proxyPresenceChannel, from: proxyName, payload: wrappedMessage}); 
+    }
+}
+
+//-----------------------------
+
 fluidsync.on('connect', () => {
+
+    fluidsyncSocketId = fluidsync.id;
 
         // now we will receive commands from remote nodes (through FluidSync)
     fluidsync.emit('subscribe', proxyChannel);    
+
+    startPresence();
 
     console.log('connected to FluidSync');
 });
 
 fluidsync.on('reconnect', () => {
+
     console.log('reconnect to FluidSync ...');        
 });    
 
 fluidsync.on('disconnect', () => {
+
+    fluidsyncSocketId = undefined;
+
+    stopPresence();
+
     console.log('disconnected from FluidSync');        
 });    
 
