@@ -35,6 +35,10 @@ function redisProxy(options)
     };
         
     this.redisProxyChannel = 'redis-command-' + redisProxyName;
+    
+    this.redisPresenceChannel = 'redis-present-' + redisProxyName;
+
+    this.lastPresenceId = undefined;
 
     this.redisSocket = io(communicatorHost);
 
@@ -53,7 +57,7 @@ function redisProxy(options)
     this.redisSocket.on('connect', () => {
 
         this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
-        this.eventChannel = 'redis-event-' + this.redisSocket.id;
+        this.eventChannel = 'redis-event-' + this.redisSocket.id;        
                 
         this.redisSocket.on(this.feedbackChannel, (message) => {
         
@@ -79,6 +83,30 @@ function redisProxy(options)
             }
         });
         
+        this.redisSocket.on(this.redisPresenceChannel, (message) => {
+            
+            let payload = message.payload;
+
+            let presenceId = this.lastPresenceId;
+
+            if(presenceId === undefined)
+            {
+                this.lastPresenceId = payload.proxySocketId;
+            }
+            else if(presenceId !== payload.proxySocketId)
+            {
+                this.resubscribeAll();
+                
+                this.lastPresenceId = payload.proxySocketId;
+            }
+            
+            if(this.onPresence)
+            {
+                this.onPresence(payload);
+            }
+        });
+
+        this.redisSocket.emit('subscribe', this.redisPresenceChannel);
         this.redisSocket.emit('subscribe', this.feedbackChannel);
         this.redisSocket.emit('subscribe', this.eventChannel);
 
