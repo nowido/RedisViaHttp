@@ -1,0 +1,176 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js"></script>
+
+    <script>
+               
+        //--------------------------
+
+        function WorkerProc()
+        {
+            importScripts('https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js');
+            importScripts('https://fluidsyncredis.firebaseapp.com/redisproxy.js');
+
+            const tasksQueueKey = 'tasks';
+            const taskChannel = '__keyevent@0__:lpush';
+
+            var redis;
+            var workerId;
+
+            function onRedisFeedback(err, reply)
+            {
+                if(reply)
+                {
+                    postMessage({reason: 'task', workerId: workerId, data: reply});            
+
+                    tryGetTask();
+                }                        
+            }
+
+            function tryGetTask()
+            {
+                redis.sendCommand('rpop', [tasksQueueKey], onRedisFeedback);                                
+            }
+
+            onmessage = function(e)
+            {
+                let msg = e.data;
+
+                let command = msg.command;
+                
+                if(command === 'START')
+                {
+                    workerId = msg.workerId;
+                    
+                    function onConnect(redisObject)
+                    {
+                        redisObject.onEvent = (data) => {
+                    
+                            console.log(data);
+
+                            if(data.message === tasksQueueKey)
+                            {
+                                tryGetTask();
+                            }                                
+                        };
+                        
+                        redisObject.sendCommand('subscribe', [taskChannel]);
+                    
+                        postMessage({reason: 'ready', workerId: workerId});
+
+                        tryGetTask();
+                    }
+                            
+                    function onTargetChanged(redisObject)
+                    {
+                        console.log('target changed');
+
+                        tryGetTask();
+                    }
+
+                    if(redisProxy)
+                    {
+                        redis = new redisProxy({redisProxyName: 'unique_instance_name', onConnect: onConnect});        
+
+                        redis.onTargetChanged = onTargetChanged;
+                    }        
+                }
+                else if(command === 'QUIT')
+                {
+                    if(redis)
+                    {
+                        redis.sendCommand('unsubscribe', [taskChannel]);                    
+                    }
+                    
+                    postMessage({reason: 'disposed', workerId: workerId});
+                }
+            }                        
+        }
+
+        //--------------------------
+
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        const workerProcBlob = new Blob(['(' + WorkerProc.toString()+')()'], {type: 'text/javascript'});
+
+        var workerProcUrl = URL.createObjectURL(workerProcBlob);
+        
+        $(() => {
+
+            let terminateWorkersButton = $('#terminateWorkersButton');
+
+            const workersCount = 4;
+
+            let workers = [];
+
+            let disposalCount = 0;
+
+            function onMesssageFromWorker(e)
+            {
+                let msg = e.data;
+
+                let reason = msg.reason;
+
+                let workerId = msg.workerId;
+
+                if(reason === 'ready')
+                {
+                    print('ready(' + workerId + ')');
+                }
+                else if(reason === 'task')
+                {
+                    print('task(' + workerId + ') -- ' + msg.data);
+                }
+                else if(reason === 'disposed')
+                {
+                    print('disposed(' + workerId + ')');
+
+                    ++disposalCount;
+
+                    if(disposalCount === workersCount)
+                    {
+                        workers.forEach(w => {
+                            w.terminate();
+                        })                        
+
+                        terminateWorkersButton.prop('disabled', true);
+                        
+                        URL.revokeObjectURL(workerProcUrl);
+
+                        print('terminated');
+                    }
+                }
+            }
+
+            for(let i = 0; i < workersCount; ++i)
+            {
+                let w = new Worker(workerProcUrl);
+
+                w.onmessage = onMesssageFromWorker;
+
+                w.postMessage({workerId: i, command: 'START'});
+
+                workers.push(w);
+            }
+
+            print('started');
+
+            terminateWorkersButton.click(() => {
+
+                workers.forEach(w => {
+                    w.postMessage({command: 'QUIT'});
+                })
+            });
+        });
+        
+    </script>
+<body> 
+    <button id="terminateWorkersButton">
+        Terminate workers
+    </button>
+</body>
+</html>
