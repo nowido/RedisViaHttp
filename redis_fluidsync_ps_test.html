@@ -47,6 +47,7 @@
             let tryBlockingButton = $('#tryBlockingButton');
             let subscribeKeyspaceEvents = $('#subscribeKeyspaceEvents');
             let unsubscribeKeyspaceEvents = $('#unsubscribeKeyspaceEvents');
+            let tryPack = $('#tryPack');
 
             sendButton.click(() => 
             {
@@ -96,6 +97,24 @@
                     printErrReply(err, reply);
                 });                                    
             });
+
+            tryPack.click(() => {
+                
+                let pack = 
+                [
+                    {command: 'set', args: ['foo', '14']},
+                    {command: 'incr', args: ['foo']},
+                    {command: 'get', args: ['foo']}
+                ];
+
+                redis.sendCommandsPack(pack, (err, reply) => {
+
+                    //console.log(err);
+                    //console.log(reply);
+
+                    printErrReply(err, reply);
+                });
+            });
         });
         
     </script>
@@ -131,6 +150,10 @@
     <button id="unsubscribeKeyspaceEvents">
         Unsubscribe from Keyspace events (foo)
     </button>        
+
+    <button id="tryPack">
+        send pack [[set foo 14], [incr foo], [get foo]]
+    </button>    
     
 </body>
 </html>
