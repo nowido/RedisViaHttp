@@ -12,6 +12,11 @@
             $('body').append('<p>' + s + '</p>');       
         }
 
+        function printErrReply(err, reply)
+        {
+            print('error: ' + err + '; reply: ' + reply);
+        }
+
         $(() => {
             function onConnect(redis)
             {
@@ -40,51 +45,55 @@
             let subscribePatternButton = $('#subscribePatternButton');
             let unsubscribePatternButton = $('#unsubscribePatternButton');
             let tryBlockingButton = $('#tryBlockingButton');
+            let subscribeKeyspaceEvents = $('#subscribeKeyspaceEvents');
+            let unsubscribeKeyspaceEvents = $('#unsubscribeKeyspaceEvents');
 
             sendButton.click(() => 
             {
-                redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {
-                    //console.log(err);
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                redis.sendCommand('set', ['foo', 'bar' + Math.random()], (err, reply) => {                    
+                    printErrReply(err, reply);                             
                 });
             });      
             
             subscribeButton.click(() => {
                 redis.sendCommand('subscribe', ['poo', 'pee'], (err, reply) => {
-                    //console.log(reply);
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                    printErrReply(err, reply);
                 });                    
             });
                         
             unsubscribeButton.click(() => {
                 redis.sendCommand('unsubscribe', ['pee', 'poo'], (err, reply) => {
-                    //console.log(reply);
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                    printErrReply(err, reply);
                 });                                    
             });
 
             subscribePatternButton.click(() => {
                 redis.sendCommand('psubscribe', ['q*'], (err, reply) => {
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                    printErrReply(err, reply);
                 });                    
             });
                         
             unsubscribePatternButton.click(() => {
                 redis.sendCommand('punsubscribe', ['q*'], (err, reply) => {
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                    printErrReply(err, reply);
                 });                                    
             });   
             
             tryBlockingButton.click(() => {
                 redis.sendCommand('blpop', ['some', 0], (err, reply) => {
-                    console.log(err);
-                    print('error: ' + err);
-                    print('reply: ' + reply);                
+                    printErrReply(err, reply);
+                });                                    
+            });
+
+            subscribeKeyspaceEvents.click(() => {
+                redis.sendCommand('subscribe', ['__keyspace@0__:foo'], (err, reply) => {                    
+                    printErrReply(err, reply);
+                });                    
+            });
+
+            unsubscribeKeyspaceEvents.click(() => {
+                redis.sendCommand('unsubscribe', ['__keyspace@0__:foo'], (err, reply) => {
+                    printErrReply(err, reply);
                 });                                    
             });
         });
@@ -114,5 +123,14 @@
     <button id="tryBlockingButton">
         BLPOP some
     </button>    
+
+    <button id="subscribeKeyspaceEvents">
+        Subscribe to Keyspace events (foo)
+    </button>        
+
+    <button id="unsubscribeKeyspaceEvents">
+        Unsubscribe from Keyspace events (foo)
+    </button>        
+    
 </body>
 </html>
