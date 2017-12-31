@@ -98,6 +98,11 @@ function redisProxy(options)
                 this.resubscribeAll();
                 
                 this.lastPresenceId = payload.proxySocketId;
+
+                if(this.onTargetChanged)
+                {
+                    this.onTargetChanged(this);    
+                }
             }
             
             if(this.onPresence)
