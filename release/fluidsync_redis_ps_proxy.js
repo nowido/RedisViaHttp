@@ -338,6 +338,34 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
     } // end if command is non-empty string
 }
 
+redisProxy.prototype.sendCommandsPack = function(commandsPack, onResult)
+{
+    // commandsPack is an array of commands to be executed as one batch
+
+    if(commandsPack)
+    {
+        let commandPayload = 
+        {
+            feedbackChannel: this.feedbackChannel,         
+            command: 'pxpack',
+            pack: commandsPack
+        };
+
+        ++this.commandId;
+    
+        let id = this.commandId;
+    
+        commandPayload.id = id;
+    
+        if(onResult)
+        {
+            this.commandsRegistry.set(id, onResult);
+        }
+        
+        this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});
+    }
+}
+
 redisProxy.prototype.runHeartBeat = function()
 {
     // set active if there are subscriptions
