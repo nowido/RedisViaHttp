@@ -1,7 +1,7 @@
     // Redis client
 const redis = require('redis');
 
-    // to do use config or commandline arg to specify Redis server attributes
+    // to do use config file or commandline arg to specify Redis server attributes
 const redisHost = '127.0.0.1';
 const redisPort = '6379';
 
@@ -304,7 +304,7 @@ function subscribeForChannels(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        sendError(message, 'no anonymous subscribe allowed in shared environment');
+        sendError(message, ERR_NO_ANONYMOUS_SUBSCRIBE);
     }           
 }
 
@@ -350,7 +350,7 @@ function subscribeForPatterns(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        sendError(message, 'no anonymous subscribe allowed in shared environment');
+        sendError(message, ERR_NO_ANONYMOUS_SUBSCRIBE);
     }           
 }
 
@@ -406,7 +406,7 @@ function unsubscribeFromChannels(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
+        sendError(message, ERR_NO_ANONYMOUS_UNSUBSCRIBE);
     }           
 }
 
@@ -462,7 +462,7 @@ function unsubscribeFromPatterns(message, command)
     {
         // eventChannel is undefined or of incorrect type
 
-        sendError(message, 'no anonymous unsubscribe allowed in shared environment');
+        sendError(message, ERR_NO_ANONYMOUS_UNSUBSCRIBE);
     }           
 }
 
@@ -721,9 +721,15 @@ fluidsync.on(proxyChannel, function (data)
                 return;
             }
             
+            if(command === 'PXPACK')
+            {
+                executeCommandsPack(message);
+                return;
+            }
+
             if(blockingCommands[command])
             {
-                sendError(message, 'blocking commands unsupported');    
+                sendError(message, ERR_BLOCKING_UNSUPPORTED);    
                 return;
             }
 
@@ -743,6 +749,77 @@ fluidsync.on(proxyChannel, function (data)
         }
     }
 });
+
+//-----------------------------
+
+function executeCommandsPack(message)
+{
+    let commandsPack = message.pack;
+
+    if(commandsPack && commandsPack.forEach)
+    {
+        let stableEntries = [];
+
+        commandsPack.forEach(entry => {
+
+            if(entry)
+            {
+                let command = entry.command;
+
+                if(typeof command === 'string')
+                {
+                    command = command.trim().toUpperCase();
+
+                    if(command.length > 0)
+                    {
+                        if(blockingCommands[command])
+                        {
+                            sendError(message, ERR_BLOCKING_UNSUPPORTED);
+                            return;
+                        }
+                                           
+                        if(pubsubCommands[command])
+                        {        
+                            sendError(message, ERR_PUBSUB_IN_PACK_UNSUPPORTED);
+                            return;
+                        }
+                        
+                        stableEntries.push(entry);    
+                    }
+                }    
+            }
+            
+        }); // end each entry in commandsPack is valid
+
+        if(stableEntries.length > 0)
+        {
+            let packBatch = [];
+
+            stableEntries.forEach(entry => {
+
+                let commandItem = [entry.command];
+
+                let commandItemArgs = entry.args;
+
+                if(commandItemArgs && commandItemArgs.forEach)
+                {
+                    commandItemArgs.forEach(itemArg => {
+                        commandItem.push(itemArg);
+                    });
+                }
+
+                packBatch.push(commandItem);
+            });
+
+            redisClient.batch(packBatch).exec((err, reply) => {        
+        
+                sendReply(message, err, reply);            
+            });
+
+        } // end if stableEntries are of non-zero length
+
+    } // end if valid commands pack
+}
 
 //-----------------------------
 
@@ -770,6 +847,13 @@ function sendError(message, info)
 
     sendReply(message, err, null);
 }           
+
+//-----------------------------
+
+const ERR_BLOCKING_UNSUPPORTED = 'blocking commands unsupported';
+const ERR_PUBSUB_IN_PACK_UNSUPPORTED = 'publish/subscribe commands unsupported in packs';
+const ERR_NO_ANONYMOUS_SUBSCRIBE = 'no anonymous subscribe allowed in shared environment';
+const ERR_NO_ANONYMOUS_UNSUBSCRIBE = 'no anonymous unsubscribe allowed in shared environment';
 
 //-----------------------------
 
