@@ -12,12 +12,39 @@
             importScripts('https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js');
             importScripts('https://fluidsyncredis.firebaseapp.com/redisproxy.js');
 
+            const remoteNodeName = 'unique_instance_name';
             const tasksQueueKey = 'tasks';
             const taskChannel = '__keyevent@0__:lpush';
 
             var redis;
             var workerId;
 
+            function onConnect(redisObject)
+            {
+                redisObject.sendCommand('subscribe', [taskChannel]);
+            
+                postMessage({reason: 'ready', workerId: workerId});
+
+                tryGetTask();
+            }
+                    
+            function onEvent(eventData, redisObject)
+            {
+                console.log(eventData);
+
+                if(eventData.message === tasksQueueKey)
+                {
+                    tryGetTask();
+                }                                
+            }
+
+            function onRemoteNodeChanged(redisObject)
+            {
+                console.log('remote node changed');
+
+                tryGetTask();
+            }
+            
             function onRedisFeedback(err, reply)
             {
                 if(reply)
@@ -43,37 +70,15 @@
                 {
                     workerId = msg.workerId;
                     
-                    function onConnect(redisObject)
+                    if(RedisProxy)
                     {
-                        redisObject.onEvent = (data) => {
-                    
-                            console.log(data);
-
-                            if(data.message === tasksQueueKey)
-                            {
-                                tryGetTask();
-                            }                                
-                        };
-                        
-                        redisObject.sendCommand('subscribe', [taskChannel]);
-                    
-                        postMessage({reason: 'ready', workerId: workerId});
-
-                        tryGetTask();
-                    }
-                            
-                    function onTargetChanged(redisObject)
-                    {
-                        console.log('target changed');
-
-                        tryGetTask();
-                    }
-
-                    if(redisProxy)
-                    {
-                        redis = new redisProxy({redisProxyName: 'unique_instance_name', onConnect: onConnect});        
-
-                        redis.onTargetChanged = onTargetChanged;
+                        redis = new RedisProxy
+                        ({
+                            remoteNodeName: remoteNodeName,
+                            onConnect: onConnect,
+                            onEvent: onEvent,
+                            onRemoteNodeChanged: onRemoteNodeChanged
+                        });
                     }        
                 }
                 else if(command === 'QUIT')
