@@ -1,7 +1,7 @@
 // RedisProxy constructor
 
 function RedisProxy(options){
-
+    
 // constructor args must be present:
 
     if(!options){return null;}
@@ -22,35 +22,13 @@ function RedisProxy(options){
     
 // optional handlers may be specified in args:
 
-    let onConnect = options.onConnect;
+    this.eventListeners = new Map();
 
-    if(onConnect){
-        this.onConnect = onConnect;
-    }
-
-    let onDisconnect = options.onDisconnect;
-
-    if(onDisconnect){
-        this.onDisconnect = onDisconnect;
-    }
-
-    let onEvent = options.onEvent;
-
-    if(onEvent){
-        this.onEvent = onEvent;
-    }
-    
-    let onRemoteNodeChanged = options.onRemoteNodeChanged;
-
-    if(onRemoteNodeChanged){
-        this.onRemoteNodeChanged = onRemoteNodeChanged;
-    }
-    
-    let onPresence = options.onPresence;
-
-    if(onPresence){
-        this.onPresence = onPresence;
-    }
+    this.addEventListener('connect', options.onConnect);
+    this.addEventListener('disconnect', options.onDisconnect);
+    this.addEventListener('pubsub_event', options.onPubsubEvent);
+    this.addEventListener('remote_node_changed', options.onRemoteNodeChanged);
+    this.addEventListener('presence', options.onPresence);
 
 // RedisProxy instance internal fields:
 
@@ -84,8 +62,8 @@ function RedisProxy(options){
         patterns: new Set()
     };
 
-    this.heartBeat = false;
-    
+    this.heartBeat = false;        
+
     this.redisSocket.on('connect', () => {
 
         this.feedbackChannel = 'redis-ret-' + this.redisSocket.id;
@@ -116,8 +94,12 @@ function RedisProxy(options){
                 this.checkPresence(payload.proxySocketId);
             }
 
-            if(this.onEvent){
-                this.onEvent(payload, this);
+            const eventType = 'pubsub_event';
+
+            let listeners = this.eventListeners.get(eventType);
+
+            if(listeners){
+                listeners.forEach(handler => {handler(eventType, payload, this)});
             }
         });
         
@@ -129,9 +111,13 @@ function RedisProxy(options){
             {                
                 this.checkPresence(payload.proxySocketId);
 
-                if(this.onPresence){
-                    this.onPresence(this);
-                }    
+                const eventType = 'presence';
+
+                let listeners = this.eventListeners.get(eventType);
+
+                if(listeners){
+                    listeners.forEach(handler => {handler(eventType, this)});
+                }
             }            
         });
 
@@ -141,8 +127,12 @@ function RedisProxy(options){
 
         this.resubscribeAll();
 
-        if(this.onConnect){
-            this.onConnect(this);
+        const eventType = 'connect';
+
+        let listeners = this.eventListeners.get(eventType);
+
+        if(listeners){
+            listeners.forEach(handler => {handler(eventType, this)});
         }
 
     }); // end on connect
@@ -151,9 +141,13 @@ function RedisProxy(options){
 
         this.deactivateHeartBeat();    
 
-        if(this.onDisconnect){
-            this.onDisconnect(this);
-        }        
+        const eventType = 'disconnect';
+
+        let listeners = this.eventListeners.get(eventType);
+
+        if(listeners){
+            listeners.forEach(handler => {handler(eventType, this)});
+        }
     }); 
 
     return this;
@@ -161,6 +155,41 @@ function RedisProxy(options){
 } // end constructor
 
 // RedisProxy interface methods
+
+RedisProxy.prototype.addEventListener = function(event, handler)
+{
+    if((typeof handler === 'function') && (typeof event === 'string') && (event.length > 0))
+    {
+        let entry = this.eventListeners.get(event);
+
+        if(entry === undefined)
+        {
+            this.eventListeners.set(event, new Set([handler]));
+        }
+        else
+        {
+            entry.add(handler);
+        }
+    }
+}
+
+RedisProxy.prototype.removeEventListener = function(event, handler)
+{
+    if((typeof handler === 'function') && (typeof event === 'string') && (event.length > 0))
+    {
+        let entry = this.eventListeners.get(event);
+
+        if(entry !== undefined)
+        {
+            entry.delete(handler);
+            
+            if(entry.size === 0)
+            {
+                this.eventListeners.delete(event);    
+            }
+        }
+    }
+}
 
 RedisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 {
@@ -441,8 +470,12 @@ RedisProxy.prototype.checkPresence = function(incomingPresenceId)
 
         this.resubscribeAll();
 
-        if(this.onRemoteNodeChanged){
-            this.onRemoteNodeChanged(this);    
+        const eventType = 'remote_node_changed';
+
+        let listeners = this.eventListeners.get(eventType);
+
+        if(listeners){
+            listeners.forEach(handler => {handler(eventType, this)});
         }
     }
 }
@@ -472,4 +505,4 @@ RedisProxy.prototype.pubsubCommands =
 };
 
 // end RedisProxy module
-        
+            
