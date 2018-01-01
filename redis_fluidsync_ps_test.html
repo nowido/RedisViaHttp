@@ -19,24 +19,24 @@
 
         $(() => {
             
-            function onConnect(redisObject)
+            function onConnect(eventType, redisObject)
             {
                 print('FluidSync2 Redis connection: ' + redisObject.redisSocket.id);    
             }
 
-            function onEvent(message)
+            function onPubsubEvent(eventType, message)
             {
                 console.log(message);
 
                 print('event: ' + message.event);    
             }
 
-            function onPresence(redisObject)
+            function onPresence(eventType, redisObject)
             {
                 print('Redis presence: ' + redisObject.lastPresenceId); 
             }
             
-            function onRemoteNodeChanged(redisObject)
+            function onRemoteNodeChanged(eventType, redisObject)
             {
                 print('remote node changed: ' + redisObject.lastPresenceId); 
             }
@@ -45,7 +45,7 @@
             ({
                 remoteNodeName: 'unique_instance_name',
                 onConnect: onConnect,
-                onEvent: onEvent,
+                onPubsubEvent: onPubsubEvent,
                 onPresence: onPresence,
                 onRemoteNodeChanged: onRemoteNodeChanged
             });
