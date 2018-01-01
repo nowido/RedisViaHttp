@@ -19,12 +19,43 @@
                 this.key = key;
                 this.onItem = onItem;
                 this.redisObject = redisObject;
+                
+                this.inConstructor = true;
+
+                redisObject.addEventListener('connect', this.onConnect.bind(this));
+                redisObject.addEventListener('pubsub_event', this.onPubsubEvent.bind(this));
+                redisObject.addEventListener('remote_node_changed', this.onRemoteNodeChanged.bind(this));
 
                 redisObject.sendCommand('subscribe', [this.trackChannel]);
+
+                this.inConstructor = false;
+
+                this.tryGetItem();
 
                 return this;
             }
 
+            TrackingRpopQueue.prototype.onConnect = function(eventType, redisObject)
+            {
+                if(!this.inConstructor)
+                {
+                    this.tryGetItem();
+                }      
+            }
+
+            TrackingRpopQueue.prototype.onPubsubEvent = function(eventType, eventData)
+            {
+                if((eventData.channel === this.trackChannel) && (eventData.message === this.key))
+                {
+                    this.tryGetItem();
+                }                                
+            }
+
+            TrackingRpopQueue.prototype.onRemoteNodeChanged = function(eventType, redisObject)
+            {
+                this.tryGetItem();
+            }
+            
             TrackingRpopQueue.prototype.trackChannel = '__keyevent@0__:lpush';
 
             TrackingRpopQueue.prototype.tryGetItem = function()
@@ -39,14 +70,6 @@
                     this.onItem(reply);
                     this.tryGetItem();
                 }
-            }
-
-            TrackingRpopQueue.prototype.handleEvent = function(data)
-            {
-                if((data.channel === this.trackChannel) && (data.message === this.key))
-                {
-                    this.tryGetItem();
-                }                                
             }
 
             TrackingRpopQueue.prototype.destroy = function()
@@ -73,7 +96,7 @@
                 postMessage({reason: 'task', workerId: workerId, data: taskItem});
             }
 
-            function onConnect(redisObject)
+            function onConnect(eventType, redisObject)
             {
                 postMessage({reason: 'ready', workerId: workerId});
 
@@ -81,28 +104,16 @@
                 {
                     queue = new TrackingRpopQueue(tasksQueueKey, consumeTask, redisObject);
                 }
-                
-                queue.tryGetItem();
             }
                     
-            function onEvent(eventData, redisObject)
+            function onPubsubEvent(eventType, eventData)
             {
                 console.log(eventData);
-
-                if(queue)
-                {
-                    queue.handleEvent(eventData);
-                }
             }
 
-            function onRemoteNodeChanged(redisObject)
+            function onRemoteNodeChanged(eventType)
             {
                 console.log('remote node changed');
-
-                if(queue)
-                {
-                    queue.tryGetItem();
-                }                
             }
             
             onmessage = function(e)
@@ -121,7 +132,7 @@
                         ({
                             remoteNodeName: remoteNodeName,
                             onConnect: onConnect,
-                            onEvent: onEvent,
+                            onPubsubEvent: onPubsubEvent,
                             onRemoteNodeChanged: onRemoteNodeChanged
                         });
                     }        
