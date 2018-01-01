@@ -284,7 +284,13 @@ function subscribeForChannels(message, command)
 
                     let subscribersCount = subscriptionsRegistry.addChannel(channel, eventChannel); 
     
-                    let wrappedMessage = {event: 'subscribe', channel: channel, count: subscribersCount};
+                    let wrappedMessage = 
+                    {
+                        event: 'subscribe', 
+                        channel: channel, 
+                        count: subscribersCount,
+                        proxySocketId: fluidsyncSocketId
+                    };
     
                     fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
                 }
@@ -330,7 +336,13 @@ function subscribeForPatterns(message, command)
 
                     let subscribersCount = subscriptionsRegistry.addPattern(pattern, eventChannel); 
     
-                    let wrappedMessage = {event: 'psubscribe', pattern: pattern, count: subscribersCount};
+                    let wrappedMessage = 
+                    {
+                        event: 'psubscribe', 
+                        pattern: pattern, 
+                        count: subscribersCount,
+                        proxySocketId: fluidsyncSocketId
+                    };
     
                     fluidsync.emit('publish', {channel: eventChannel, from: proxyName, payload: wrappedMessage});                                
                 }
@@ -562,9 +574,9 @@ function updateTimeLicense(message)
 
 //-----------------------------
 
-const GARBAGE_COLLECTOR_PERIOD = 15 * 60 * 1000; // 15 min
+const GARBAGE_COLLECTOR_PERIOD = 3 * 60 * 1000; // 3 min
 
-const TIME_LICENSE_PERIOD = 20 * 60 * 1000; // 20 min
+const TIME_LICENSE_PERIOD = 5 * 60 * 1000; // 5 min
 
 var garbageCollectionPresent = false;
 var garbageCollectionIntervalId;
