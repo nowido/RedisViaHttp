@@ -1,26 +1,58 @@
-function redisProxy(options)
-{   
-    if(!options)
-    {
-        return null;
-    }
+// RedisProxy constructor
 
-    let redisProxyName = options.redisProxyName;
+function RedisProxy(options){
 
-    if(!redisProxyName)
-    {
-        return null;
-    }
+// constructor args must be present:
+
+    if(!options){return null;}
+
+// remote node identifier must be present:
+
+    let remoteNodeName = options.remoteNodeName; 
+
+    if(!remoteNodeName){return null;}
+
+// there is default FluidSync service host, if not specified in args:
 
     let communicatorHost = options.communicatorHost;
         
-    if(!communicatorHost)
-    {
-        communicatorHost = 'https://fluidsync2.herokuapp.com';
+    if(!communicatorHost){
+        communicatorHost = this.defaultCommunicatorHost;
     }
+    
+// optional handlers may be specified in args:
 
     let onConnect = options.onConnect;
+
+    if(onConnect){
+        this.onConnect = onConnect;
+    }
+
     let onDisconnect = options.onDisconnect;
+
+    if(onDisconnect){
+        this.onDisconnect = onDisconnect;
+    }
+
+    let onEvent = options.onEvent;
+
+    if(onEvent){
+        this.onEvent = onEvent;
+    }
+    
+    let onRemoteNodeChanged = options.onRemoteNodeChanged;
+
+    if(onRemoteNodeChanged){
+        this.onRemoteNodeChanged = onRemoteNodeChanged;
+    }
+    
+    let onPresence = options.onPresence;
+
+    if(onPresence){
+        this.onPresence = onPresence;
+    }
+
+// RedisProxy instance internal fields:
 
     this.subscribeCommands = 
     {
@@ -34,9 +66,9 @@ function redisProxy(options)
         'UNSUBSCRIBE': this.unregisterChannels.bind(this)
     };
         
-    this.redisProxyChannel = 'redis-command-' + redisProxyName;
+    this.redisCommandsChannel = 'redis-command-' + remoteNodeName;
     
-    this.redisPresenceChannel = 'redis-present-' + redisProxyName;
+    this.redisPresenceChannel = 'redis-present-' + remoteNodeName;
 
     this.lastPresenceId = undefined;
 
@@ -77,9 +109,15 @@ function redisProxy(options)
 
         this.redisSocket.on(this.eventChannel, (message) => {
         
-            if(this.onEvent)
-            {
-                this.onEvent(message.payload);
+            let payload = message.payload;
+
+            if(payload && (typeof payload.proxySocketId === 'string'))
+            {                
+                this.checkPresence(payload.proxySocketId);
+            }
+
+            if(this.onEvent){
+                this.onEvent(payload, this);
             }
         });
         
@@ -87,28 +125,14 @@ function redisProxy(options)
             
             let payload = message.payload;
 
-            let presenceId = this.lastPresenceId;
+            if(payload && (typeof payload.proxySocketId === 'string'))
+            {                
+                this.checkPresence(payload.proxySocketId);
 
-            if(presenceId === undefined)
-            {
-                this.lastPresenceId = payload.proxySocketId;
-            }
-            else if(presenceId !== payload.proxySocketId)
-            {
-                this.resubscribeAll();
-                
-                this.lastPresenceId = payload.proxySocketId;
-
-                if(this.onTargetChanged)
-                {
-                    this.onTargetChanged(this);    
-                }
-            }
-            
-            if(this.onPresence)
-            {
-                this.onPresence(payload);
-            }
+                if(this.onPresence){
+                    this.onPresence(this);
+                }    
+            }            
         });
 
         this.redisSocket.emit('subscribe', this.redisPresenceChannel);
@@ -117,162 +141,28 @@ function redisProxy(options)
 
         this.resubscribeAll();
 
-        if(onConnect)
-        {
-            onConnect(this);
+        if(this.onConnect){
+            this.onConnect(this);
         }
-    });
+
+    }); // end on connect
 
     this.redisSocket.on('disconnect', () => {
 
         this.deactivateHeartBeat();    
 
-        if(onDisconnect)
-        {
-            onDisconnect(this);
+        if(this.onDisconnect){
+            this.onDisconnect(this);
         }        
-    });
+    }); 
 
     return this;
-}
 
-//
+} // end constructor
 
-redisProxy.prototype.heartBeatPeriod = 5 * 60 * 1000; // 5 min
+// RedisProxy interface methods
 
-//
-
-redisProxy.prototype.pubsubCommands = 
-{
-    'PSUBSCRIBE': true,
-    'PUNSUBSCRIBE': true,
-    'SUBSCRIBE': true,
-    'UNSUBSCRIBE': true
-};
-
-redisProxy.prototype.registerChannels = function(entries)
-{
-    return this.registerTokens(entries, this.subscriptionsRegistry.channels);
-}
-
-redisProxy.prototype.registerPatterns = function(entries)
-{
-    return this.registerTokens(entries, this.subscriptionsRegistry.patterns);
-}
-
-redisProxy.prototype.unregisterChannels = function(entries)
-{
-    return this.unregisterTokens(entries, this.subscriptionsRegistry.channels);
-}
-
-redisProxy.prototype.unregisterPatterns = function(entries)
-{
-    return this.unregisterTokens(entries, this.subscriptionsRegistry.patterns);
-}
-
-redisProxy.prototype.registerTokens = function(entries, registry)
-{
-    let stableEntries = [];
-    
-    if((entries !== undefined) && (entries.length > 0))
-    {
-        entries.forEach(token => {
-
-            if((typeof token === 'string') && (token.length > 0))
-            {
-                registry.add(token);
-    
-                stableEntries.push(token);
-            }
-        });
-    }
-
-    return stableEntries;
-}
-
-redisProxy.prototype.unregisterTokens = function(entries, registry)
-{
-    let stableEntries = [];
-
-    if((entries !== undefined) && (entries.length > 0))
-    {
-        entries.forEach(token => {
-
-            if((typeof token === 'string') && (token.length > 0))
-            {
-                registry.delete(token);
-
-                stableEntries.push(token);        
-            }
-        });        
-    }
-    else
-    {
-        // unsubscribe from all channels|patterns
-
-        registry.forEach(token => {
-            
-            stableEntries.push(token);
-        });
-
-        registry.clear();
-    }
-
-    return stableEntries;
-}
-
-redisProxy.prototype.resubscribeAll = function()
-{
-    let channels = this.subscriptionsRegistry.channels;
-    let patterns = this.subscriptionsRegistry.patterns;
-
-    let channelsEntries = [];
-    let patternsEntries = [];
-
-    channels.forEach(key => {
-
-        channelsEntries.push(key);
-    });
-
-    patterns.forEach(key => {
-
-        patternsEntries.push(key);
-    });
-
-    let commandPayload = 
-    { 
-        feedbackChannel: this.feedbackChannel,
-        eventChannel: this.eventChannel
-    };
-
-    if(channelsEntries.length > 0)
-    {
-        this.commandId++;
-    
-        commandPayload.id = this.commandId;
-        commandPayload.command = 'subscribe';
-        commandPayload.args = channelsEntries;
-    
-        this.redisSocket.emit('publish', 
-            {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});        
-    }
-
-    if(patternsEntries.length > 0)
-    {
-        this.commandId++;
-    
-        commandPayload.id = this.commandId;
-        commandPayload.command = 'psubscribe';
-        commandPayload.args = patternsEntries;
-    
-        this.redisSocket.emit('publish', 
-            {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});                
-    }
-
-    this.runHeartBeat();
-}
-
-redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
+RedisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
 {
     if((typeof commandName === 'string') && (commandName.length > 0))
     {
@@ -338,12 +228,12 @@ redisProxy.prototype.sendCommand = function(commandName, commandArgs, onResult)
             this.commandsRegistry.set(id, onResult);
         }
         
-        this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+        this.emitCommand(commandPayload);
     
     } // end if command is non-empty string
 }
 
-redisProxy.prototype.sendCommandsPack = function(commandsPack, onResult)
+RedisProxy.prototype.sendCommandsPack = function(commandsPack, onResult)
 {
     // commandsPack is an array of commands to be executed as one batch
 
@@ -367,11 +257,133 @@ redisProxy.prototype.sendCommandsPack = function(commandsPack, onResult)
             this.commandsRegistry.set(id, onResult);
         }
         
-        this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});
+        this.emitCommand(commandPayload);
     }
 }
 
-redisProxy.prototype.runHeartBeat = function()
+// RedisProxy internal methods:
+
+RedisProxy.prototype.registerChannels = function(entries)
+{
+    return this.registerTokens(entries, this.subscriptionsRegistry.channels);
+}
+
+RedisProxy.prototype.registerPatterns = function(entries)
+{
+    return this.registerTokens(entries, this.subscriptionsRegistry.patterns);
+}
+
+RedisProxy.prototype.unregisterChannels = function(entries)
+{
+    return this.unregisterTokens(entries, this.subscriptionsRegistry.channels);
+}
+
+RedisProxy.prototype.unregisterPatterns = function(entries)
+{
+    return this.unregisterTokens(entries, this.subscriptionsRegistry.patterns);
+}
+
+RedisProxy.prototype.registerTokens = function(entries, registry)
+{
+    let stableEntries = [];
+    
+    if((entries !== undefined) && (entries.length > 0))
+    {
+        entries.forEach(token => {
+
+            if((typeof token === 'string') && (token.length > 0))
+            {
+                registry.add(token);
+    
+                stableEntries.push(token);
+            }
+        });
+    }
+
+    return stableEntries;
+}
+
+RedisProxy.prototype.unregisterTokens = function(entries, registry)
+{
+    let stableEntries = [];
+
+    if((entries !== undefined) && (entries.length > 0))
+    {
+        entries.forEach(token => {
+
+            if((typeof token === 'string') && (token.length > 0))
+            {
+                registry.delete(token);
+
+                stableEntries.push(token);        
+            }
+        });        
+    }
+    else
+    {
+        // unsubscribe from all channels|patterns
+
+        registry.forEach(token => {
+            
+            stableEntries.push(token);
+        });
+
+        registry.clear();
+    }
+
+    return stableEntries;
+}
+
+RedisProxy.prototype.resubscribeAll = function()
+{
+    let channels = this.subscriptionsRegistry.channels;
+    let patterns = this.subscriptionsRegistry.patterns;
+
+    let channelsEntries = [];
+    let patternsEntries = [];
+
+    channels.forEach(key => {
+
+        channelsEntries.push(key);
+    });
+
+    patterns.forEach(key => {
+
+        patternsEntries.push(key);
+    });
+
+    let commandPayload = 
+    { 
+        feedbackChannel: this.feedbackChannel,
+        eventChannel: this.eventChannel
+    };
+
+    if(channelsEntries.length > 0)
+    {
+        this.commandId++;
+    
+        commandPayload.id = this.commandId;
+        commandPayload.command = 'subscribe';
+        commandPayload.args = channelsEntries;
+    
+        this.emitCommand(commandPayload);
+    }
+
+    if(patternsEntries.length > 0)
+    {
+        this.commandId++;
+    
+        commandPayload.id = this.commandId;
+        commandPayload.command = 'psubscribe';
+        commandPayload.args = patternsEntries;
+    
+        this.emitCommand(commandPayload);
+    }
+
+    this.runHeartBeat();
+}
+
+RedisProxy.prototype.runHeartBeat = function()
 {
     // set active if there are subscriptions
     
@@ -388,7 +400,7 @@ redisProxy.prototype.runHeartBeat = function()
     }   
 }
 
-redisProxy.prototype.checkHeartBeat = function()
+RedisProxy.prototype.checkHeartBeat = function()
 {
     // set inactive if no subscriptions
 
@@ -398,7 +410,7 @@ redisProxy.prototype.checkHeartBeat = function()
     }
 }
 
-redisProxy.prototype.deactivateHeartBeat = function()
+RedisProxy.prototype.deactivateHeartBeat = function()
 {
     if(this.heartBeat)
     {
@@ -410,13 +422,54 @@ redisProxy.prototype.deactivateHeartBeat = function()
     }
 }
 
-redisProxy.prototype.onHeartBeat = function()
+RedisProxy.prototype.onHeartBeat = function()
 {
-    let commandPayload = 
-    {
-        eventChannel: this.eventChannel,                
-        command: 'heartbeat'
-    };
-    
-    this.redisSocket.emit('publish', {channel: this.redisProxyChannel, from: this.redisSocket.id, payload: commandPayload});    
+    this.emitCommand({eventChannel: this.eventChannel, command: 'heartbeat'});
 }
+
+RedisProxy.prototype.checkPresence = function(incomingPresenceId)
+{
+    let presenceId = this.lastPresenceId;
+
+    if(presenceId === undefined)
+    {
+        this.lastPresenceId = incomingPresenceId;
+    }
+    else if(presenceId !== incomingPresenceId)
+    {                
+        this.lastPresenceId = incomingPresenceId;
+
+        this.resubscribeAll();
+
+        if(this.onRemoteNodeChanged){
+            this.onRemoteNodeChanged(this);    
+        }
+    }
+}
+
+RedisProxy.prototype.emitCommand = function(payload)
+{
+    this.redisSocket.emit('publish', 
+    {
+        channel: this.redisCommandsChannel, 
+        from: this.redisSocket.id, 
+        payload: payload
+    });    
+}
+
+// RedisProxy constants:
+
+RedisProxy.prototype.defaultCommunicatorHost = 'https://fluidsync2.herokuapp.com';
+
+RedisProxy.prototype.heartBeatPeriod = 1 * 60 * 1000; // 1 min
+
+RedisProxy.prototype.pubsubCommands = 
+{
+    'PSUBSCRIBE': true,
+    'PUNSUBSCRIBE': true,
+    'SUBSCRIBE': true,
+    'UNSUBSCRIBE': true
+};
+
+// end RedisProxy module
+        
