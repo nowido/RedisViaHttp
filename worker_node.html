@@ -12,54 +12,99 @@
             importScripts('https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js');
             importScripts('https://fluidsyncredis.firebaseapp.com/redisproxy.js');
 
+            //-------------------------
+
+            function TrackingRpopQueue(key, onItem, redisObject)
+            {
+                this.key = key;
+                this.onItem = onItem;
+                this.redisObject = redisObject;
+
+                redisObject.sendCommand('subscribe', [this.trackChannel]);
+
+                return this;
+            }
+
+            TrackingRpopQueue.prototype.trackChannel = '__keyevent@0__:lpush';
+
+            TrackingRpopQueue.prototype.tryGetItem = function()
+            {
+                this.redisObject.sendCommand('rpop', [this.key], this.onGetItemFeedback.bind(this));
+            }            
+
+            TrackingRpopQueue.prototype.onGetItemFeedback = function(err, reply)
+            {
+                if(reply)
+                {
+                    this.onItem(reply);
+                    this.tryGetItem();
+                }
+            }
+
+            TrackingRpopQueue.prototype.handleEvent = function(data)
+            {
+                if((data.channel === this.trackChannel) && (data.message === this.key))
+                {
+                    this.tryGetItem();
+                }                                
+            }
+
+            TrackingRpopQueue.prototype.destroy = function()
+            {    
+                this.redisObject.sendCommand('unsubscribe', [this.trackChannel]);
+                
+                this.key = null;
+                this.onItem = null;
+                this.redisObject = null;
+            }
+
+            //-------------------------
+
             const remoteNodeName = 'unique_instance_name';
             const tasksQueueKey = 'tasks';
-            const taskChannel = '__keyevent@0__:lpush';
 
             var redis;
             var workerId;
 
+            var queue;
+
+            function consumeTask(taskItem)
+            {
+                postMessage({reason: 'task', workerId: workerId, data: taskItem});
+            }
+
             function onConnect(redisObject)
             {
-                redisObject.sendCommand('subscribe', [taskChannel]);
-            
                 postMessage({reason: 'ready', workerId: workerId});
 
-                tryGetTask();
+                if(!queue)
+                {
+                    queue = new TrackingRpopQueue(tasksQueueKey, consumeTask, redisObject);
+                }
+                
+                queue.tryGetItem();
             }
                     
             function onEvent(eventData, redisObject)
             {
                 console.log(eventData);
 
-                if(eventData.message === tasksQueueKey)
+                if(queue)
                 {
-                    tryGetTask();
-                }                                
+                    queue.handleEvent(eventData);
+                }
             }
 
             function onRemoteNodeChanged(redisObject)
             {
                 console.log('remote node changed');
 
-                tryGetTask();
+                if(queue)
+                {
+                    queue.tryGetItem();
+                }                
             }
             
-            function onRedisFeedback(err, reply)
-            {
-                if(reply)
-                {
-                    postMessage({reason: 'task', workerId: workerId, data: reply});            
-
-                    tryGetTask();
-                }                        
-            }
-
-            function tryGetTask()
-            {
-                redis.sendCommand('rpop', [tasksQueueKey], onRedisFeedback);                                
-            }
-
             onmessage = function(e)
             {
                 let msg = e.data;
@@ -83,9 +128,9 @@
                 }
                 else if(command === 'QUIT')
                 {
-                    if(redis)
+                    if(queue)
                     {
-                        redis.sendCommand('unsubscribe', [taskChannel]);                    
+                        queue.destroy();
                     }
                     
                     postMessage({reason: 'disposed', workerId: workerId});
