@@ -3,7 +3,7 @@
     <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
     <!--<script src="https://fluidsync2.herokuapp.com/socket.io/socket.io.js"></script>-->    
     <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js"></script>
-    <script src="fluidsync_redis_ps_proxy.js"></script>
+    <script src="https://fluidsyncredis.firebaseapp.com/redisproxy.js"></script>
 
     <script>
                 
@@ -18,27 +18,38 @@
         }
 
         $(() => {
-            function onConnect(redis)
+            
+            function onConnect(redisObject)
             {
-                print('FluidSync2 Redis connection: ' + redis.redisSocket.id);    
-
-                redis.onEvent = (message) => {
-
-                    console.log(message);
-
-                    print('event: ' + message.event);    
-                };
-
-                redis.onPresence = (message) => {
-                    
-                    console.log(message);
-                    
-                    print('event: ' + message.event); 
-                }
+                print('FluidSync2 Redis connection: ' + redisObject.redisSocket.id);    
             }
-                        
-            let redis = new redisProxy({redisProxyName: 'unique_instance_name', onConnect: onConnect});
 
+            function onEvent(message)
+            {
+                console.log(message);
+
+                print('event: ' + message.event);    
+            }
+
+            function onPresence(redisObject)
+            {
+                print('Redis presence: ' + redisObject.lastPresenceId); 
+            }
+            
+            function onRemoteNodeChanged(redisObject)
+            {
+                print('remote node changed: ' + redisObject.lastPresenceId); 
+            }
+
+            let redis = new RedisProxy
+            ({
+                remoteNodeName: 'unique_instance_name',
+                onConnect: onConnect,
+                onEvent: onEvent,
+                onPresence: onPresence,
+                onRemoteNodeChanged: onRemoteNodeChanged
+            });
+            
             let sendButton = $('#sendButton');
             let subscribeButton = $('#subscribeButton');
             let unsubscribeButton = $('#unsubscribeButton');
