@@ -1,0 +1,261 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/2.0.4/socket.io.slim.js"></script>
+
+    <script>
+                
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        //-------------------------------------------------------
+
+        function FluidsyncWebhookTranslator(options)
+        {
+            if(!options)
+            {
+                return null;
+            }
+
+            let channels = options.channels;
+
+            if(!channels)
+            {
+                return null;
+            }
+
+            let onRequest = options.onRequest;
+
+            if(!onRequest)
+            {
+                return null;
+            }
+
+            let onConnect = options.onConnect;
+
+            let communicatorHost = options.communicatorHost;
+
+            if(!communicatorHost)
+            {
+                communicatorHost = this.defaultCommunicatorHost;
+            }
+
+            let subscriptionList = [];
+
+            if(channels.forEach)
+            {
+                channels.forEach(channel => {
+
+                    if((typeof channel === 'string') && (channel.length > 0))
+                    {
+                        subscriptionList.push(channel);
+                    }
+                });
+            }
+
+            if(subscriptionList.length === 0){
+                return null;
+            }
+
+            let thisObject = this;
+            
+            thisObject.fluidsync = io(communicatorHost);
+
+            thisObject.fluidsync.on('connect', () => {
+
+                subscriptionList.forEach(entry => {
+
+                    thisObject.fluidsync.emit('subscribe', entry);                    
+
+                    thisObject.fluidsync.on(entry, onRequest);
+                });
+
+                if(onConnect){
+                    onConnect(thisObject);
+                }
+            });            
+
+            return this;
+        }
+
+        FluidsyncWebhookTranslator.prototype.defaultCommunicatorHost = 'https://fluidsync2.herokuapp.com';
+
+        //-------------------------------------------------------
+
+        function Base58Stuff()
+        {
+            return this;
+        }
+
+        Base58Stuff.prototype.alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz"
+
+        Base58Stuff.prototype.stringToBuffer = function(s)
+        {
+            if(typeof s === 'string')
+            {
+                let length = s.length;
+
+                let buffer16bit = new Uint16Array(length);
+
+                for(let i = 0; i < length; ++i)
+                {
+                    buffer16bit[i] = s.charCodeAt(i);
+                }
+
+                return new Uint8Array(buffer16bit.buffer);
+            }
+            
+            return null;
+        }
+
+        Base58Stuff.prototype.bufferToString = function(buffer8bit)
+        {
+            let buffer16bit = new Uint16Array(buffer8bit.buffer);
+
+            let s = '';
+
+            let length = buffer16bit.length;
+
+            for(let i = 0; i < length; ++i)
+            {
+                s += String.fromCharCode(buffer16bit[i]);
+            }            
+
+            return s;                
+        }
+        
+        Base58Stuff.prototype.encode = function(B /*Uint8Array raw byte input*/){
+
+            let A = this.alphabet;
+
+            var d = [],   //the array for storing the stream of base58 digits
+                s = "",   //the result string variable that will be returned
+                i,        //the iterator variable for the byte input
+                j,        //the iterator variable for the base58 digit array (d)
+                c,        //the carry amount variable that is used to overflow from the current base58 digit to the next base58 digit
+                n;        //a temporary placeholder variable for the current base58 digit
+
+            for(i in B) { //loop through each byte in the input stream
+                j = 0,                           //reset the base58 digit iterator
+                c = B[i];                        //set the initial carry amount equal to the current byte amount
+                s += c || s.length ^ i ? "" : 1; //prepend the result string with a "1" (0 in base58) if the byte stream is zero and non-zero bytes haven't been seen yet (to ensure correct decode length)
+                while(j in d || c) {             //start looping through the digits until there are no more digits and no carry amount
+                    n = d[j];                    //set the placeholder for the current base58 digit
+                    n = n ? n * 256 + c : c;     //shift the current base58 one byte and add the carry amount (or just add the carry amount if this is a new digit)
+                    c = n / 58 | 0;              //find the new carry amount (floored integer of current digit divided by 58)
+                    d[j] = n % 58;               //reset the current base58 digit to the remainder (the carry amount will pass on the overflow)
+                    j++                          //iterate to the next base58 digit
+                }
+            }
+
+            while(j--)        //since the base58 digits are backwards, loop through them in reverse order
+                s += A[d[j]]; //lookup the character associated with each base58 digit
+
+            return s;         //return the final base58 string
+        }
+
+        Base58Stuff.prototype.decode = function(S /*Base58 encoded string input*/) {
+
+            let A = this.alphabet;
+
+            var d = [],   //the array for storing the stream of decoded bytes
+                b = [],   //the result byte array that will be returned
+                i,        //the iterator variable for the base58 string
+                j,        //the iterator variable for the byte array (d)
+                c,        //the carry amount variable that is used to overflow from the current byte to the next byte
+                n;        //a temporary placeholder variable for the current byte
+
+            for(i in S) { //loop through each base58 character in the input string
+                j = 0,                             //reset the byte iterator
+                c = A.indexOf( S[i] );             //set the initial carry amount equal to the current base58 digit
+                if(c < 0)                          //see if the base58 digit lookup is invalid (-1)
+                    return undefined;              //if invalid base58 digit, bail out and return undefined
+                c || b.length ^ i ? i : b.push(0); //prepend the result array with a zero if the base58 digit is zero and non-zero characters haven't been seen yet (to ensure correct decode length)
+                while(j in d || c) {               //start looping through the bytes until there are no more bytes and no carry amount
+                    n = d[j];                      //set the placeholder for the current byte
+                    n = n ? n * 58 + c : c;        //shift the current byte 58 units and add the carry amount (or just add the carry amount if this is a new byte)
+                    c = n >> 8;                    //find the new carry amount (1-byte shift of current byte value)
+                    d[j] = n % 256;                //reset the current byte to the remainder (the carry amount will pass on the overflow)
+                    j++                            //iterate to the next byte
+                }
+            }
+
+            while(j--)               //since the byte array is backwards, loop through it in reverse order
+                b.push( d[j] );      //append each byte to the result
+
+            return new Uint8Array(b);   //return the final byte array in Uint8Array format
+        }
+
+        //-------------------------------------------------------
+
+        $(() => {
+                        
+            const plainChannel = 'wht-unique-text';
+            const b58Channel = 'wht-unique-b58';
+
+            let fwht = new FluidsyncWebhookTranslator({
+                channels: [plainChannel, b58Channel],
+                onRequest: onRequest,
+                onConnect: onConnect
+            });
+
+            let b58 = new Base58Stuff();
+
+            function onRequest(message){
+
+                console.log(message);
+
+                let payload = message.payload;
+
+                if(payload && (typeof payload.url === 'string'))
+                {
+                    let url = new URL(payload.url, 'http://g.com');
+
+                    let searchParams = url.searchParams;
+
+                    let data = {};
+
+                    for(param of searchParams)
+                    {
+                        data[param[0]] = param[1];                            
+                    }
+
+                    if(data.channel && (data.channel.length > 0))
+                    {
+                        let payloadObject = data.payload;
+
+                        if(message.channel === b58Channel)
+                        {
+                            let bytestream = b58.decode(payloadObject);
+                            let jsonCame = b58.bufferToString(bytestream);
+
+                            try
+                            {
+                                payloadObject = JSON.parse(jsonCame); 
+                            }
+                            catch(e)
+                            {}
+                        } 
+                        
+                        console.log(payloadObject);
+
+                        fwht.fluidsync.emit('publish', {
+                            channel: data.channel, 
+                            from: data.from, 
+                            payload: payloadObject
+                        });    
+                    }                    
+                }
+            }
+
+            function onConnect(){
+                print('Connected to Fluidsync: ' + fwht.fluidsync.id);
+            }        
+        });
+        
+    </script>
+<body>     
+</body>
+</html>
