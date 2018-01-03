@@ -50,7 +50,7 @@ function RedisProxy(options){
 
     this.lastPresenceId = undefined;
 
-    this.redisSocket = io(communicatorHost);
+    this.redisSocket = io(communicatorHost, {transports: ['websocket']});
 
     this.commandId = 1;
 
@@ -505,4 +505,4 @@ RedisProxy.prototype.pubsubCommands =
 };
 
 // end RedisProxy module
-            
+        
