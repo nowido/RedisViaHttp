@@ -20,7 +20,7 @@ const io = require('socket.io-client');
 
     // FluidSync host
     // to do use config or commandline arg... but, honestly, if where are other FluidSync providers?
-const fluidsync = io('https://fluidsync2.herokuapp.com');  
+const fluidsync = io('https://fluidsync2.herokuapp.com', {transports: ['websocket']});  
 
 var fluidsyncSocketId;
 
