@@ -17,7 +17,7 @@
 
             const channelToListen = 'mychannel';
 
-            let fluidsync = io(communicatorHost);
+            let fluidsync = io(communicatorHost, {transports: ['websocket']});
 
             fluidsync.on(channelToListen, (message) => {
 
