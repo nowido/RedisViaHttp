@@ -61,7 +61,7 @@
 
             let thisObject = this;
             
-            thisObject.fluidsync = io(communicatorHost);
+            thisObject.fluidsync = io(communicatorHost, {transports: ['websocket']});
 
             thisObject.fluidsync.on('connect', () => {
 
