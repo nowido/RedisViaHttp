@@ -70,12 +70,7 @@ module.exports = class FluidSyncClient
     {
         this.id = this.generateUniqueId();
     
-        let handler = this.clientHandlers.get('open');
-    
-        if(handler)
-        {
-            handler(this);
-        }            
+        this.notifyGeneral('open');
     }
     
     onClose(e)
@@ -86,47 +81,32 @@ module.exports = class FluidSyncClient
     
         this.socket = undefined;
     
-        let handler = this.clientHandlers.get('close');
-    
-        if(handler)
-        {
-            handler(this, e.code, e.reason);
-        }
+        this.notifyOnClose(e.code, e.reason);    
     }
     
     onError()
     {
-        let handler = this.clientHandlers.get('error');
-    
-        if(handler)
-        {
-            handler(this);
-        }                        
+        this.notifyGeneral('error');
     }
     
     onMessage(e)
     {
         let jsonData = e.data;
-    
+
         let handlers = this.clientHandlers;
     
         if(jsonData === this.appLayerPongMessage)
         {
-            let pongHandler = handlers.get('pong');
-    
-            if(pongHandler)
-            {
-                pongHandler(this);
-            }
+            this.notifyGeneral('pong');
     
             return;
         }
         
-        let handler = handlers.get('message');
+        let generalHandlers = handlers.get('message');
         
-        if(handler)
+        if(generalHandlers)
         {
-            handler(this, jsonData);
+            this.notifyOnMessage('message', jsonData);
         }
         else
         {
@@ -138,16 +118,12 @@ module.exports = class FluidSyncClient
     
                 if((typeof channel === 'string') && (channel.length > 0))
                 {
-                    let channelHandler = handlers.get(channel);
-    
-                    if(channelHandler)
+                    this.notifyOnMessage(channel, 
                     {
-                        channelHandler(this, {
-                            channel: channel, 
-                            from: messageObject.from, 
-                            payload: messageObject.payload
-                        });
-                    }
+                        channel: channel, 
+                        from: messageObject.from, 
+                        payload: messageObject.payload
+                    });
                 }
             }
             catch(err)
@@ -230,7 +206,18 @@ module.exports = class FluidSyncClient
     {
         if(listener && (typeof eventType === 'string') && (eventType.length > 0))
         {
-            this.clientHandlers.set(eventType, listener);    
+            let handlers = this.clientHandlers;
+    
+            let eventHandlers = handlers.get(eventType);
+    
+            if(eventHandlers === undefined)
+            {
+                handlers.set(eventType, new Set([listener]));
+            }
+            else
+            {
+                eventHandlers.add(listener);
+            }        
         }            
     }
     
@@ -238,10 +225,76 @@ module.exports = class FluidSyncClient
     {
         if(listener && (typeof eventType === 'string') && (eventType.length > 0))
         {
-            this.clientHandlers.delete(eventType);    
+            let handlers = this.clientHandlers;
+    
+            let eventHandlers = handlers.get(eventType);
+    
+            if(eventHandlers !== undefined)
+            {
+                eventHandlers.delete(listener);
+    
+                if(eventHandlers.size === 0)
+                {
+                    handlers.delete(eventType);    
+                }
+            }
         }            
     }
     
+    notifyGeneral(eventType)
+    {
+        let handlers = this.clientHandlers;
+    
+        let eventHandlers = handlers.get(eventType);
+    
+        if(eventHandlers && eventHandlers.forEach)
+        {
+            eventHandlers.forEach(handler => {
+    
+                if(handler)
+                {
+                    handler(this);
+                }
+            });
+        }
+    }
+        
+    notifyOnClose(code, reason)
+    {
+        let handlers = this.clientHandlers;
+    
+        let eventHandlers = handlers.get('close');
+    
+        if(eventHandlers && eventHandlers.forEach)
+        {
+            eventHandlers.forEach(handler => {
+    
+                if(handler)
+                {
+                    handler(this, code, reason);
+                }
+            });
+        }
+    }
+        
+    notifyOnMessage(eventType, message)
+    {
+        let handlers = this.clientHandlers;
+    
+        let eventHandlers = handlers.get(eventType);
+    
+        if(eventHandlers && eventHandlers.forEach)
+        {
+            eventHandlers.forEach(handler => {
+    
+                if(handler)
+                {
+                    handler(this, message);
+                }
+            });
+        }
+    }
+        
     subscribe(channel)
     {
         let socket = this.socket;
@@ -253,7 +306,7 @@ module.exports = class FluidSyncClient
             socket.send(JSON.stringify(message));
         }            
     }
-    
+
     unsubscribe(channel)
     {
         let socket = this.socket;
@@ -265,7 +318,7 @@ module.exports = class FluidSyncClient
             socket.send(JSON.stringify(message));
         }            
     }
-    
+            
     publish(message)
     {
         let socket = this.socket;
@@ -311,6 +364,3 @@ module.exports = class FluidSyncClient
         }
     }    
 };
-
-
-
