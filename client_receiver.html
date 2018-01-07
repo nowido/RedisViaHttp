@@ -13,39 +13,29 @@
         //---------------------------------------------------
         
         $(() => {
-
-            function onOpen(fluidsync)
-            {
-                console.log('connected: ' + fluidsync.id);
-
-                fluidsync.addEventListener('mychannel', (fluidsync, message) => {
-                    console.log('message on ['  + fluidsync.id + ']');
-                    console.log(message);     
-                });
-                
-                fluidsync.subscribe('mychannel');
-            }
-
-            function onClose(fluidsync, code, reason)
-            {
-                console.log('closed [' + fluidsync.id + ']: code=' + code + ', reason=' + reason);
-            }
-
-            function onError(fluidsync)
-            {
-                console.log('error ['  + fluidsync.id + ']');
-            }
-
-            function onPong(fluidsync)
-            {
-                console.log('pong on ['  + fluidsync.id + ']');                
-            }
             
-            let fsc = new FluidSyncClient({                
-                onOpen: onOpen,
-                onClose: onClose,
-                onError: onError,
-                onPong
+            let fluidsync = new FluidSyncClient();
+
+            fluidsync.addEventListener('open', (fluidsync) => {
+                console.log('connected [' + fluidsync.id + ']');                
+                fluidsync.subscribe('mychannel');
+            });
+
+            fluidsync.addEventListener('mychannel', (fluidsync, message) => {
+                console.log('message on ['  + fluidsync.id + ']');
+                console.log(message);     
+            });
+
+            fluidsync.addEventListener('close', (fluidsync, code, reason) => {                
+                console.log('closed [' + fluidsync.id + ']: code=' + code + ', reason=' + reason);
+            }); 
+
+            fluidsync.addEventListener('error', (fluidsync) => {
+                console.log('error on ['  + fluidsync.id + ']');
+            });
+
+            fluidsync.addEventListener('pong', (fluidsync) => {
+                console.log('server pong on ['  + fluidsync.id + ']');
             });
         });
         
