@@ -61,12 +61,7 @@ FluidSyncClient.prototype.onOpen = function(e)
 {
     this.id = this.generateUniqueId();
 
-    let handler = this.clientHandlers.get('open');
-
-    if(handler)
-    {
-        handler(this);
-    }            
+    this.notifyGeneral('open');
 }
 
 FluidSyncClient.prototype.onClose = function(e)
@@ -77,22 +72,12 @@ FluidSyncClient.prototype.onClose = function(e)
 
     this.socket = undefined;
 
-    let handler = this.clientHandlers.get('close');
-
-    if(handler)
-    {
-        handler(this, e.code, e.reason);
-    }
+    this.notifyOnClose(e.code, e.reason);
 }
 
 FluidSyncClient.prototype.onError = function()
 {
-    let handler = this.clientHandlers.get('error');
-
-    if(handler)
-    {
-        handler(this);
-    }                        
+    this.notifyGeneral('error');
 }
 
 FluidSyncClient.prototype.onMessage = function(e)
@@ -103,21 +88,16 @@ FluidSyncClient.prototype.onMessage = function(e)
 
     if(jsonData === this.appLayerPongMessage)
     {
-        let pongHandler = handlers.get('pong');
-
-        if(pongHandler)
-        {
-            pongHandler(this);
-        }
+        this.notifyGeneral('pong');
 
         return;
     }
     
-    let handler = handlers.get('message');
+    let generalHandlers = handlers.get('message');
     
-    if(handler)
+    if(generalHandlers)
     {
-        handler(this, jsonData);
+        this.notifyOnMessage('message', jsonData);
     }
     else
     {
@@ -129,16 +109,12 @@ FluidSyncClient.prototype.onMessage = function(e)
 
             if((typeof channel === 'string') && (channel.length > 0))
             {
-                let channelHandler = handlers.get(channel);
-
-                if(channelHandler)
+                this.notifyOnMessage(channel, 
                 {
-                    channelHandler(this, {
-                        channel: channel, 
-                        from: messageObject.from, 
-                        payload: messageObject.payload
-                    });
-                }
+                    channel: channel, 
+                    from: messageObject.from, 
+                    payload: messageObject.payload
+                });
             }
         }
         catch(err)
@@ -226,7 +202,18 @@ FluidSyncClient.prototype.addEventListener = function(eventType, listener)
 {
     if(listener && (typeof eventType === 'string') && (eventType.length > 0))
     {
-        this.clientHandlers.set(eventType, listener);    
+        let handlers = this.clientHandlers;
+
+        let eventHandlers = handlers.get(eventType);
+
+        if(eventHandlers === undefined)
+        {
+            handlers.set(eventType, new Set([listener]));
+        }
+        else
+        {
+            eventHandlers.add(listener);
+        }        
     }            
 }
 
@@ -234,8 +221,74 @@ FluidSyncClient.prototype.removeEventListener = function(eventType, listener)
 {
     if(listener && (typeof eventType === 'string') && (eventType.length > 0))
     {
-        this.clientHandlers.delete(eventType);    
+        let handlers = this.clientHandlers;
+
+        let eventHandlers = handlers.get(eventType);
+
+        if(eventHandlers !== undefined)
+        {
+            eventHandlers.delete(listener);
+
+            if(eventHandlers.size === 0)
+            {
+                handlers.delete(eventType);    
+            }
+        }
     }            
+}
+
+FluidSyncClient.prototype.notifyGeneral = function(eventType)
+{
+    let handlers = this.clientHandlers;
+
+    let eventHandlers = handlers.get(eventType);
+
+    if(eventHandlers && eventHandlers.forEach)
+    {
+        eventHandlers.forEach(handler => {
+
+            if(handler)
+            {
+                handler(this);
+            }
+        });
+    }
+}
+
+FluidSyncClient.prototype.notifyOnClose = function(code, reason)
+{
+    let handlers = this.clientHandlers;
+
+    let eventHandlers = handlers.get('close');
+
+    if(eventHandlers && eventHandlers.forEach)
+    {
+        eventHandlers.forEach(handler => {
+
+            if(handler)
+            {
+                handler(this, code, reason);
+            }
+        });
+    }
+}
+
+FluidSyncClient.prototype.notifyOnMessage = function(eventType, message)
+{
+    let handlers = this.clientHandlers;
+
+    let eventHandlers = handlers.get(eventType);
+
+    if(eventHandlers && eventHandlers.forEach)
+    {
+        eventHandlers.forEach(handler => {
+
+            if(handler)
+            {
+                handler(this, message);
+            }
+        });
+    }
 }
 
 FluidSyncClient.prototype.subscribe = function(channel)
