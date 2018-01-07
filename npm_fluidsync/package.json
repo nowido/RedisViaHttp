@@ -1,0 +1,16 @@
+{
+  "name": "fluidsync_ws_client",
+  "version": "1.0.1",
+  "description": "Node.js client for FluidSync service",
+  "main": "fluidsync_ws_client.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "ws": ">=4.0.0",  
+    "bufferutil": "^3.0.3",
+    "utf-8-validate": "^4.0.0"
+  },    
+  "author": "Oleg Nazarkin",
+  "license": "ISC"
+}
