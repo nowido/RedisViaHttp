@@ -1,0 +1,72 @@
+<html lang="ru">
+    <meta charset="UTF-8">
+    <script src="https://ajax.googleapis.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+    <script src="https://fluidsync-8f7e4.firebaseapp.com/fluidsync_ws.js"></script>
+
+    <script>
+               
+        function print(s)
+        {
+            $('body').append('<p>' + s + '</p>');       
+        }
+
+        //---------------------------------------------------
+        
+        $(() => {
+
+            function onOpen(fluidsync)
+            {
+                console.log('connected: ' + fluidsync.id);
+            }
+
+            function onClose(fluidsync, code, reason)
+            {
+                console.log('closed [' + fluidsync.id + ']: code=' + code + ', reason=' + reason);
+            }
+
+            function onError(fluidsync)
+            {
+                console.log('error ['  + fluidsync.id + ']');
+            }
+
+            function onMessage(fluidsync, message)
+            {
+                console.log('message on ['  + fluidsync.id + ']');
+                console.log(message);     
+            }
+
+            function onPong(fluidsync)
+            {
+                console.log('pong on ['  + fluidsync.id + ']');                
+            }
+            
+            let fsc = new FluidSyncClient({                
+                onOpen: onOpen,
+                onClose: onClose,
+                onError: onError,
+                onMessage: onMessage,
+                onPong
+            });
+                                    
+            let sendButton = $('#sendButton');
+
+            sendButton.click(() => {
+
+                if(fsc)
+                {
+                    fsc.publish({
+                        channel: 'mychannel',
+                        from: fsc.id,
+                        payload: {someRandom: Math.random()}
+                    });
+                }
+            });
+        });
+        
+    </script>
+<body> 
+    <button id="sendButton">
+        Send message
+    </button>    
+</body>
+</html>
