@@ -14,11 +14,17 @@
         
         $(() => {
             
+            let needSubscribe = true;
+
             let fluidsync = new FluidSyncClient();
 
             fluidsync.addEventListener('open', (fluidsync) => {
-                console.log('connected [' + fluidsync.id + ']');                
-                fluidsync.subscribe('mychannel');
+                console.log('connected [' + fluidsync.id + ']'); 
+                
+                if(needSubscribe)
+                {
+                    fluidsync.subscribe('mychannel');
+                }                
             });
 
             fluidsync.addEventListener('mychannel', (fluidsync, message) => {
@@ -37,9 +43,23 @@
             fluidsync.addEventListener('pong', (fluidsync) => {
                 console.log('server pong on ['  + fluidsync.id + ']');
             });
+
+            let unsubscribeButton = $('#unsubscribeButton');
+
+            unsubscribeButton.click(() => {
+
+                if(needSubscribe && fluidsync)
+                {                    
+                    fluidsync.unsubscribe('mychannel');
+                    needSubscribe = false;
+                }
+            });
         });
         
     </script>
 <body> 
+    <button id="unsubscribeButton">
+        Unsubscribe
+    </button>                
 </body>
 </html>
