@@ -248,11 +248,19 @@ module.exports = class FluidSyncClient
     
         if(socket && (socket.readyState === 1) && (typeof channel === 'string') && (channel.length > 0))
         {
-            let message = 
-            {
-                action: 'subscribe',
-                channel: channel
-            };
+            let message = {action: 'subscribe', channel: channel};
+        
+            socket.send(JSON.stringify(message));
+        }            
+    }
+    
+    unsubscribe(channel)
+    {
+        let socket = this.socket;
+    
+        if(socket && (socket.readyState === 1) && (typeof channel === 'string') && (channel.length > 0))
+        {
+            let message = {action: 'unsubscribe', channel: channel};
         
             socket.send(JSON.stringify(message));
         }            
