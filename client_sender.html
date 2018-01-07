@@ -40,6 +40,7 @@
                 console.log('pong on ['  + fluidsync.id + ']');                
             }
             
+            /*
             let fsc = new FluidSyncClient({                
                 onOpen: onOpen,
                 onClose: onClose,
@@ -47,16 +48,24 @@
                 onMessage: onMessage,
                 onPong
             });
-                                    
+            */
+
+            let fluidsync = new FluidSyncClient();
+
+            fluidsync.addEventListener('open', (fluidsync) => {
+                // now we can publish
+                fluidsync.publish({channel: 'mychannel', from: fluidsync.id, payload: 'awesome message'});
+            });
+
             let sendButton = $('#sendButton');
 
             sendButton.click(() => {
 
-                if(fsc)
+                if(fluidsync)
                 {
-                    fsc.publish({
+                    fluidsync.publish({
                         channel: 'mychannel',
-                        from: fsc.id,
+                        from: fluidsync.id,
                         payload: {someRandom: Math.random()}
                     });
                 }
