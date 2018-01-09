@@ -1,0 +1,6 @@
+{
+    "host" : "redis-16681.c11.us-east-1-2.ec2.cloud.redislabs.com",
+    "port" : 16681,
+    "password": "fluidsynctest2874",
+    "proxyName": "fluidsynctest_redislabs"
+}
