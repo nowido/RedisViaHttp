@@ -42,7 +42,7 @@
 
             let redis = new RedisProxy
             ({
-                remoteNodeName: 'unique_instance_name',
+                remoteNodeName: 'fluidsynctest_redislabs',
                 onConnect: onConnect,
                 onPubsubEvent: onPubsubEvent,
                 onPresence: onPresence,
@@ -50,6 +50,7 @@
             });
             
             let sendButton = $('#sendButton');
+            let receiveButton = $('#receiveButton');
             let subscribeButton = $('#subscribeButton');
             let unsubscribeButton = $('#unsubscribeButton');
             let subscribePatternButton = $('#subscribePatternButton');
@@ -66,6 +67,13 @@
                 });
             });      
             
+            receiveButton.click(() => {
+
+                redis.sendCommand('get', ['foo'], (err, reply) => {                    
+                    printErrReply(err, reply);                             
+                });                
+            });
+
             subscribeButton.click(() => {
                 redis.sendCommand('subscribe', ['poo', 'pee'], (err, reply) => {
                     printErrReply(err, reply);
@@ -133,6 +141,10 @@
         Set foo bar
     </button>   
 
+    <button id="receiveButton">
+        Get foo
+    </button>   
+    
     <button id="subscribeButton">
         Subscribe poo pee
     </button>
