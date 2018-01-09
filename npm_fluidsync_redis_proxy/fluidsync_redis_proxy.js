@@ -350,7 +350,7 @@ module.exports = class RedisProxy
         
                 this.heartBeat = true;
     
-                console.log('heartbeat is now on');
+                //console.log('heartbeat is now on');
             }                
         }   
     }
@@ -373,7 +373,7 @@ module.exports = class RedisProxy
     
             this.heartBeat = false;    
     
-            console.log('heartbeat is now off');
+            //console.log('heartbeat is now off');
         }
     }
     
@@ -511,5 +511,4 @@ module.exports = class RedisProxy
         }
     }    
 };
-
 
