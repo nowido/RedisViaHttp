@@ -341,7 +341,7 @@ RedisProxy.prototype.runHeartBeat = function()
     
             this.heartBeat = true;
 
-            console.log('heartbeat is now on');
+            //console.log('heartbeat is now on');
         }                
     }   
 }
@@ -364,7 +364,7 @@ RedisProxy.prototype.deactivateHeartBeat = function()
 
         this.heartBeat = false;    
 
-        console.log('heartbeat is now off');
+        //console.log('heartbeat is now off');
     }
 }
 
