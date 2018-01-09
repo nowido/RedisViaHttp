@@ -1,6 +1,6 @@
 {
   "name": "fluidsync_redis_proxy",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Redis proxy based on FluidSync service ",
   "main": "fluidsync_redis_proxy.js",
   "scripts": {
