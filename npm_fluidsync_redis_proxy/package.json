@@ -1,0 +1,14 @@
+{
+  "name": "fluidsync_redis_proxy",
+  "version": "1.0.0",
+  "description": "Redis proxy based on FluidSync service ",
+  "main": "fluidsync_redis_proxy.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "fluidsync_ws_client": "^1.0.3"
+  },
+  "author": "Oleg Nazarkin",
+  "license": "ISC"
+}
