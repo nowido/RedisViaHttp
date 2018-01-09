@@ -1,13 +1,25 @@
+var config;
+
+try
+{
+    config = JSON.parse(require('fs').readFileSync('./redis_fluidsync_ws.config.json'));
+}
+catch(e)
+{
+    console.log('ERR: Problems with config file.');
+    process.exit();
+}
+
+if(!config.proxyName)
+{
+    console.log('ERR: Config must specify "proxyName" field');
+    process.exit();
+}
+
     // Redis client
 const redis = require('redis');
-
-    // to do use config file or commandline arg to specify Redis server attributes
-const redisHost = '127.0.0.1';
-const redisPort = '6379';
-
-const redisConfig = {host: redisHost, port: redisPort};
-
-const redisClient = redis.createClient(redisConfig);
+    
+const redisClient = redis.createClient(config);
 const redisSubscribedClient = redisClient.duplicate();
 
 redisClient.on('error', console.log);
@@ -18,8 +30,8 @@ redisSubscribedClient.on('error', console.log);
     // FluidSync client
 const FluidSyncClient = require('fluidsync_ws_client');
 
-    // potential clients must know proxyName to compose command channel
-const proxyName = 'unique_instance_name';
+    // clients must know proxyName to compose command channel
+const proxyName = config.proxyName;
 
 const proxyChannel = 'redis-command-' + proxyName;
 
