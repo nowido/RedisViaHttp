@@ -6,7 +6,7 @@ try
 }
 catch(e)
 {
-    console.log('ERR: Problems with config file.');
+    console.log('ERR: Problems with config file [redis_fluidsync_ws.config.json]');
     process.exit();
 }
 
@@ -19,11 +19,16 @@ if(!config.proxyName)
     // Redis client
 const redis = require('redis');
     
-const redisClient = redis.createClient(config);
-const redisSubscribedClient = redisClient.duplicate();
+var redisClient = redis.createClient(config);
+var redisSubscribedClient = redisClient.duplicate();
 
-redisClient.on('error', console.log);
-redisSubscribedClient.on('error', console.log);
+redisClient.on('error', (e) => {
+    onRedisError(redisClient, e);
+});
+
+redisSubscribedClient.on('error', (e) => {
+    onRedisError(redisSubscribedClient, e);
+});
 
 //-----------------------------
 
@@ -597,7 +602,7 @@ function startGarbageCollectorIfNeeded()
         
             garbageCollectionPresent = true;
                                         
-            console.log('garbage collector is now on');      
+            //console.log('garbage collector is now on');      
         }        
     }
 }
@@ -612,7 +617,7 @@ function stopGarbageCollectorIfNeeded()
 
             garbageCollectionPresent = false;
     
-            console.log('garbage collector is now off');    
+            //console.log('garbage collector is now off');    
         }
     }
 }
@@ -627,7 +632,7 @@ function onGarbageCollectorTick()
 
         let age = timeNow - entry.timestamp;
 
-        console.log(eventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
+        //console.log(eventChannel + ': ' + age + ': (of ' + TIME_LICENSE_PERIOD + ')');
 
         if(age >= TIME_LICENSE_PERIOD)
         {
@@ -713,7 +718,7 @@ fluidsync.addEventListener('close', (fluidsync, code, reason) => {
 
 fluidsync.addEventListener(proxyChannel, function (fluidsync, data) 
 {
-    console.log(data);
+    //console.log(data);
     
     let message = data.payload;
 
@@ -869,6 +874,15 @@ const ERR_BLOCKING_UNSUPPORTED = 'blocking commands unsupported';
 const ERR_PUBSUB_IN_PACK_UNSUPPORTED = 'publish/subscribe commands unsupported in packs';
 const ERR_NO_ANONYMOUS_SUBSCRIBE = 'no anonymous subscribe allowed in shared environment';
 const ERR_NO_ANONYMOUS_UNSUBSCRIBE = 'no anonymous unsubscribe allowed in shared environment';
+
+//-----------------------------
+
+function onRedisError(connection, e)
+{
+    console.log(e);
+
+    // reconnect?
+}
 
 //-----------------------------
 
